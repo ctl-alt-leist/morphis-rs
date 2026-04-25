@@ -12,6 +12,7 @@ Morphis provides tools for working with geometric algebra:
 
 - **Elements**: Vectors (k-vectors), multivectors, metrics
 - **Operations**: Products, norms, projections, duality
+- **Operator API**: `^` (wedge), `*` (geometric), `<<` / `>>` (interior products)
 - **Transforms**: Rotors, translators, motors, PGA (planned)
 
 The package provides mathematical tools. Applications live in examples.

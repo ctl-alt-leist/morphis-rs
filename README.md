@@ -7,29 +7,44 @@ A Rust implementation of geometric algebra, ported from the Python [morphis](htt
 - **Geometric Algebra Core**: Vectors (k-vectors), multivectors, and operations (wedge, geometric product, interior products)
 - **Metric-Aware**: Objects carry their metric context (Euclidean, Lorentzian, Projective)
 - **Full Tensor Storage**: Antisymmetric tensor representation enabling direct contraction operations
-
-## Documentation
-
-- [Project Overview](docs/0_project-overview.md) — Vision and scope
-- [Concepts](docs/1_concepts/) — Mathematical foundations (vectors, products, duality, metric)
+- **Operator Overloading**: Write geometric algebra as it reads on paper
 
 ## Quick Start
 
 ```rust
 use morphis::metric::euclidean;
-use morphis::vector::basis;
-use morphis::ops::{wedge, geometric};
+use morphis::vector::{basis, basis_element, pseudoscalar};
 
-// Create a 3D Euclidean metric and basis vectors
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, e3] = basis(g);
 
-// Wedge product: oriented plane
-let b = wedge(&e[0], &e[1]);
+// Wedge product builds blades
+let e12 = e1.clone() ^ e2.clone();   // bivector
+let e123 = e1 ^ e2 ^ e3;             // pseudoscalar
 
-// Geometric product: scalar + bivector
-let m = geometric(&e[0], &e[1]);
+// Geometric product decomposes into scalar + bivector
+let m = e1 * e2;                      // MultiVector with grades {0, 2}
+
+// Interior products contract grades
+let v = e1 << e12;                    // e1 ⌋ (e1 ^ e2) = e2
+let u = e12 >> e2;                    // (e1 ^ e2) ⌊ e2 = e1
 ```
+
+### Operator Table
+
+| Operator | Meaning | Example |
+|----------|---------|---------|
+| `^` | Wedge (exterior) product | `e1 ^ e2` |
+| `*` | Geometric (Clifford) product | `e1 * e2` |
+| `<<` | Left interior product | `u << b` |
+| `>>` | Right interior product | `b >> v` |
+| `+`, `-`, `-v` | Addition, subtraction, negation | `u + v` |
+| `* f64`, `/ f64` | Scalar multiply/divide | `3.0 * v` |
+
+## Documentation
+
+- [Project Overview](docs/0_project-overview.md) — Vision and scope
+- [Concepts](docs/1_concepts/) — Mathematical foundations (vectors, products, duality, metric)
 
 ## Development
 
@@ -52,7 +67,7 @@ cd morphis-rs
 
 ### Testing
 
-Tests are co-located with source in `#[cfg(test)] mod tests` blocks:
+Tests live in the `tests/` directory as integration tests:
 
 ```bash
 make test                    # Run all tests

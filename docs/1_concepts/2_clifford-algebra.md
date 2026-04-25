@@ -51,16 +51,15 @@ In morphis, the geometric product is denoted by `*`:
 ```rust
 use morphis::metric::euclidean;
 use morphis::vector::basis;
-use morphis::ops::geometric;
 
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, _] = basis(g);
 
 // Geometric product of orthogonal vectors: pure bivector
-let m = geometric(&e[0], &e[1]);  // grades {2}
+let m = e1.clone() * e2;   // grades {2}
 
 // Geometric product of parallel vectors: pure scalar
-let s = geometric(&e[0], &e[0]);  // grades {0}, value 1.0
+let s = e1.clone() * e1;   // grades {0}, value 1.0
 ```
 
 ## Properties of the Geometric Product

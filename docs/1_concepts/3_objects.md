@@ -15,16 +15,15 @@ A `Vector` with `grade = 1` is what's traditionally called a "vector". A `Vector
 ```rust
 use morphis::metric::euclidean;
 use morphis::vector::{Vector, basis};
-use morphis::ops::wedge;
 
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, e3] = basis(g);
 
 // Grade-1 vector (traditional "vector")
-e[0].grade();  // 1
+e1.grade();  // 1
 
-// Grade-2 vector (bivector) via wedge
-let b = wedge(&e[0], &e[1]);
+// Grade-2 vector (bivector) via wedge operator
+let b = e1 ^ e2;
 b.grade();  // 2
 
 // Grade-0 vector (scalar)
@@ -74,7 +73,7 @@ In morphis, MultiVectors are stored sparsely as a map from grade to Vector. Only
 ```rust
 use morphis::multivector::MultiVector;
 
-let m = MultiVector::from_vector(e[0].clone());
+let m = MultiVector::from_vector(e1.clone());
 m.grades();         // vec![1]
 m.grade_select(1);  // Some(&Vector)
 m.grade_select(0);  // None
