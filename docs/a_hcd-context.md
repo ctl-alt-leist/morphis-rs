@@ -34,16 +34,16 @@ $$
 
 ## Transforms
 
-The sandwich product $v \mapsto M v \tilde{M}$ is the native transformation mechanism of geometric algebra. Every isometry of the underlying space — rotation, reflection, translation (in PGA) — can be expressed as a sandwich product with an appropriate versor $M$. The `Versor<D>` type wraps the motor and its cached reverse $\tilde{M}$, and the `%` operator applies the transformation:
+The sandwich product $v \mapsto M v \tilde{M}$ is the native transformation mechanism of geometric algebra. Every isometry of the underlying space — rotation, reflection, translation (in PGA) — can be expressed as a sandwich product with an appropriate versor $M$. Rotors are plain `MultiVector` values — no special wrapper type — so the sandwich product is written as it appears in the math:
 
 ```rust
 let R = rotor(&plane, angle);
-let rotated = &R % &v;           // R v ~R, grade-projected
-let composed = &R2 * &R1;        // composition: R2 applied after R1
-let recovered = &(!&R) % &rotated;  // inverse undoes the rotation
+let rotated = (&(&R * &v) * &R.rev()).grade_project(1);  // R v ~R
+let composed = &R2 * &R1;                                 // composition
+let recovered = transform(&rotated, &R.rev());             // ~R undoes R
 ```
 
-A rotor is constructed from a bivector plane and an angle via the exponential map $R = e^{-B θ / 2} = \cos(θ / 2) - \hat{B} \sin(θ / 2)$. The sandwich product preserves grade — rotating a bivector returns a bivector, rotating a vector returns a vector — which is enforced by grade projection on the output.
+A rotor is constructed from a bivector plane and an angle via the exponential map $R = e^{-B θ / 2} = \cos(θ / 2) - \hat{B} \sin(θ / 2)$. The sandwich product preserves grade — rotating a bivector returns a bivector, rotating a vector returns a vector. The `transform(v, M)` free function computes $M v \tilde{M}$ with grade projection in one step; the explicit form `R * v * R.rev()` is equally valid when the caller handles grades themselves.
 
 Projection decomposes a vector into components parallel and perpendicular to a blade:
 
