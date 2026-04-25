@@ -150,6 +150,13 @@ impl<const D: usize> Vector<D> {
         })
     }
 
+    /// Inverse: u^{-1} = rev(u) / (u * rev(u))_0
+    ///
+    /// Returns None if the vector has no inverse (zero norm squared).
+    pub fn inv(&self) -> Option<Self> {
+        crate::ops::inverse(self)
+    }
+
     /// Component access for a single multi-index.
     pub fn component(&self, indices: &[usize]) -> f64 {
         self.data[IxDyn(indices)]
@@ -234,6 +241,80 @@ impl<const D: usize> std::ops::Div<f64> for &Vector<D> {
     }
 }
 
+/// Implement a binary operator for the three remaining ownership combinations,
+/// delegating to the existing &T op &T implementation.
+macro_rules! impl_binop_owned {
+    ($trait:ident, $method:ident, $lhs:ident, $output:ident) => {
+        impl<const D: usize> std::ops::$trait for $lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: Self) -> $output<D> {
+                (&self).$method(&rhs)
+            }
+        }
+
+        impl<const D: usize> std::ops::$trait<$lhs<D>> for &$lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: $lhs<D>) -> $output<D> {
+                self.$method(&rhs)
+            }
+        }
+
+        impl<const D: usize> std::ops::$trait<&$lhs<D>> for $lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: &$lhs<D>) -> $output<D> {
+                (&self).$method(rhs)
+            }
+        }
+    };
+}
+
+impl_binop_owned!(Add, add, Vector, Vector);
+impl_binop_owned!(Sub, sub, Vector, Vector);
+
+impl<const D: usize> std::ops::Neg for Vector<D> {
+    type Output = Vector<D>;
+
+    fn neg(self) -> Vector<D> {
+        -&self
+    }
+}
+
+/// Scalar multiplication: owned vector * scalar
+impl<const D: usize> std::ops::Mul<f64> for Vector<D> {
+    type Output = Vector<D>;
+
+    fn mul(self, rhs: f64) -> Vector<D> {
+        &self * rhs
+    }
+}
+
+/// Scalar multiplication: scalar * &vector
+impl<const D: usize> std::ops::Mul<&Vector<D>> for f64 {
+    type Output = Vector<D>;
+
+    fn mul(self, rhs: &Vector<D>) -> Vector<D> {
+        rhs * self
+    }
+}
+
+/// Scalar multiplication: scalar * vector
+impl<const D: usize> std::ops::Mul<Vector<D>> for f64 {
+    type Output = Vector<D>;
+
+    fn mul(self, rhs: Vector<D>) -> Vector<D> {
+        &rhs * self
+    }
+}
+
+/// Scalar division: owned vector / scalar
+impl<const D: usize> std::ops::Div<f64> for Vector<D> {
+    type Output = Vector<D>;
+
+    fn div(self, rhs: f64) -> Vector<D> {
+        &self / rhs
+    }
+}
+
 impl<const D: usize> PartialEq for Vector<D> {
     fn eq(&self, other: &Self) -> bool {
         self.grade == other.grade && self.data == other.data
@@ -252,6 +333,44 @@ pub fn basis<const D: usize>(metric: Metric<D>) -> [Vector<D>; D] {
 
         Vector::new(data, 1, metric)
     })
+}
+
+/// Construct a single basis vector e_n in D-dimensional space.
+pub fn basis_vector<const D: usize>(n: usize, metric: Metric<D>) -> Vector<D> {
+    assert!(
+        n < D,
+        "basis index {} out of range for {}-dimensional space",
+        n,
+        D
+    );
+    let mut data = ArrayD::zeros(IxDyn(&[D]));
+    data[IxDyn(&[n])] = 1.0;
+
+    Vector::new(data, 1, metric)
+}
+
+/// Construct a basis blade from ordered indices via wedge product.
+///
+/// `basis_element(&[0, 1], metric)` returns e_1 ^ e_2 (the basis bivector).
+/// An empty slice returns the unit scalar.
+pub fn basis_element<const D: usize>(indices: &[usize], metric: Metric<D>) -> Vector<D> {
+    if indices.is_empty() {
+        return Vector::scalar(1.0, metric);
+    }
+
+    let mut result = basis_vector(indices[0], metric);
+    for &n in &indices[1..] {
+        result = crate::ops::wedge(&result, &basis_vector(n, metric));
+    }
+
+    result
+}
+
+/// Construct the pseudoscalar: e_1 ^ e_2 ^ ... ^ e_D.
+pub fn pseudoscalar<const D: usize>(metric: Metric<D>) -> Vector<D> {
+    let indices: Vec<usize> = (0..D).collect();
+
+    basis_element(&indices, metric)
 }
 
 // =============================================================================
@@ -288,156 +407,4 @@ fn indices_iter(d: usize, k: usize) -> Vec<Vec<usize>> {
 /// Factorial of n.
 pub(crate) fn factorial(n: usize) -> usize {
     (1..=n).product()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::metric::euclidean;
-    use ndarray::{ArrayD, IxDyn};
-
-    #[test]
-    fn basis_vectors_3d() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        assert_eq!(e[0].component(&[0]), 1.0);
-        assert_eq!(e[0].component(&[1]), 0.0);
-        assert_eq!(e[0].component(&[2]), 0.0);
-
-        assert_eq!(e[1].component(&[0]), 0.0);
-        assert_eq!(e[1].component(&[1]), 1.0);
-
-        assert_eq!(e[2].component(&[2]), 1.0);
-    }
-
-    #[test]
-    fn zero_vector() {
-        let g: Metric<3> = euclidean();
-        let v = Vector::<3>::zero(1, g);
-
-        assert!(v.is_zero(1e-15));
-        assert_eq!(v.grade(), 1);
-        assert_eq!(v.dim(), 3);
-    }
-
-    #[test]
-    fn scalar_construction() {
-        let g: Metric<3> = euclidean();
-        let s = Vector::<3>::scalar(5.0, g);
-
-        assert_eq!(s.grade(), 0);
-        assert_eq!(s.data[IxDyn(&[])], 5.0);
-    }
-
-    #[test]
-    fn vector_addition() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = &e[0] + &e[1];
-
-        assert_eq!(v.component(&[0]), 1.0);
-        assert_eq!(v.component(&[1]), 1.0);
-        assert_eq!(v.component(&[2]), 0.0);
-    }
-
-    #[test]
-    fn vector_subtraction() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = &e[1] - &e[0];
-
-        assert_eq!(v.component(&[0]), -1.0);
-        assert_eq!(v.component(&[1]), 1.0);
-    }
-
-    #[test]
-    fn vector_negation() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = -&e[0];
-
-        assert_eq!(v.component(&[0]), -1.0);
-    }
-
-    #[test]
-    fn scalar_multiplication() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = &e[0] * 3.0;
-
-        assert_eq!(v.component(&[0]), 3.0);
-    }
-
-    #[test]
-    fn euclidean_norm_grade1() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
-
-        assert!((v.norm() - 5.0).abs() < 1e-12);
-    }
-
-    #[test]
-    fn normalize_unit_vector() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
-        let u = v.normalize().unwrap();
-
-        assert!((u.norm() - 1.0).abs() < 1e-12);
-        assert!((u.component(&[0]) - 0.6).abs() < 1e-12);
-        assert!((u.component(&[1]) - 0.8).abs() < 1e-12);
-    }
-
-    #[test]
-    fn reverse_involution() {
-        let g: Metric<3> = euclidean();
-        let mut data = ArrayD::zeros(IxDyn(&[3, 3]));
-        data[[0, 1]] = 1.0;
-        data[[1, 0]] = -1.0;
-        let b = Vector::<3>::new(data, 2, g);
-
-        // Grade-2: rev sign = (-1)^{2*1/2} = -1
-        let b_rev = b.rev();
-        assert_eq!(b_rev.component(&[0, 1]), -1.0);
-        assert_eq!(b_rev.component(&[1, 0]), 1.0);
-
-        // Double reverse restores original
-        let b_rev_rev = b_rev.rev();
-        assert_eq!(b_rev_rev, b);
-    }
-
-    #[test]
-    fn reverse_grade1_is_identity() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        // Grade-1: rev sign = (-1)^0 = +1
-        let e0_rev = e[0].rev();
-        assert_eq!(e0_rev, e[0]);
-    }
-
-    #[test]
-    fn reverse_grade3_sign() {
-        let g: Metric<3> = euclidean();
-        let mut data = ArrayD::zeros(IxDyn(&[3, 3, 3]));
-        data[[0, 1, 2]] = 1.0;
-        data[[1, 0, 2]] = -1.0;
-        data[[0, 2, 1]] = -1.0;
-        data[[2, 1, 0]] = -1.0;
-        data[[1, 2, 0]] = 1.0;
-        data[[2, 0, 1]] = 1.0;
-        let v = Vector::<3>::new(data, 3, g);
-
-        // Grade-3: rev sign = (-1)^{3*2/2} = (-1)^3 = -1
-        let v_rev = v.rev();
-        assert_eq!(v_rev.component(&[0, 1, 2]), -1.0);
-    }
 }

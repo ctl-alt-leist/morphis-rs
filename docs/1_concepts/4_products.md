@@ -41,13 +41,12 @@ $$(\mathbf{a} \wedge \mathbf{b}) \wedge \mathbf{c} = \mathbf{a} \wedge (\mathbf{
 ```rust
 use morphis::metric::euclidean;
 use morphis::vector::basis;
-use morphis::ops::wedge;
 
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, e3] = basis(g);
 
-let b = wedge(&e[0], &e[1]);           // Bivector
-let t = wedge(&b, &e[2]);               // Trivector (pseudoscalar in 3D)
+let b = e1.clone() ^ e2.clone();        // Bivector
+let t = e1 ^ e2 ^ e3;                   // Trivector (pseudoscalar in 3D)
 ```
 
 ### Geometric Interpretation
@@ -75,15 +74,13 @@ Result grade: $j - k$. When $k > j$: $u \llcorner v = 0$.
 ### Usage in Morphis
 
 ```rust
-use morphis::ops::{wedge, interior_left, interior_right};
+let b = e1.clone() ^ e2.clone();
 
-let b = wedge(&e[0], &e[1]);
+// Left contraction: e1 ⌋ (e1 ^ e2) = e2
+let v = e1 << b.clone();
 
-// Left contraction: e_0 ⌋ (e_0 ^ e_1) = e_1
-let v = interior_left(&e[0], &b);
-
-// Right contraction: (e_0 ^ e_1) ⌊ e_1 = e_0
-let u = interior_right(&b, &e[1]);
+// Right contraction: (e1 ^ e2) ⌊ e2 = e1
+let u = b >> e2;
 ```
 
 ### Geometric Interpretation
@@ -119,17 +116,15 @@ where $M_r = \langle M \rangle_r$ and the sum over $t$ has step 2 (parity preser
 ### Usage in Morphis
 
 ```rust
-use morphis::ops::geometric;
-
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, _] = basis(g);
 
 // Orthogonal vectors: pure bivector
-let m = geometric(&e[0], &e[1]);
+let m = e1.clone() * e2;
 m.grades();  // vec![2]
 
 // Parallel vectors: pure scalar
-let s = geometric(&e[0], &e[0]);
+let s = e1.clone() * e1;
 s.grades();  // vec![0]
 ```
 

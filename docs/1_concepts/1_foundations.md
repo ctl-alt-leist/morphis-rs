@@ -69,14 +69,13 @@ In morphis:
 ```rust
 use morphis::metric::euclidean;
 use morphis::vector::basis;
-use morphis::ops::wedge;
 
 let g = euclidean::<3>();
-let e = basis(g);
+let [e1, e2, _] = basis(g);
 
 // Wedge product creates a bivector
-let b = wedge(&e[0], &e[1]);  // grade-2 vector
-b.grade();                      // 2
+let b = e1 ^ e2;   // grade-2 vector
+b.grade();          // 2
 ```
 
 ## Storage Convention

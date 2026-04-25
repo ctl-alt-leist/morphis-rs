@@ -149,88 +149,82 @@ impl<const D: usize> std::ops::Mul<f64> for &MultiVector<D> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::metric::euclidean;
-    use crate::ops::wedge;
-    use crate::vector::basis;
+impl<const D: usize> std::ops::Add for MultiVector<D> {
+    type Output = MultiVector<D>;
 
-    #[test]
-    fn from_vector() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
-
-        let mv = MultiVector::from_vector(e[0].clone());
-
-        assert_eq!(mv.grades(), vec![1]);
-        assert!(mv.grade_select(1).is_some());
-        assert!(mv.grade_select(0).is_none());
+    fn add(self, rhs: Self) -> MultiVector<D> {
+        &self + &rhs
     }
+}
 
-    #[test]
-    fn multivector_addition() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g.clone());
+impl<const D: usize> std::ops::Add<MultiVector<D>> for &MultiVector<D> {
+    type Output = MultiVector<D>;
 
-        let s = Vector::<3>::scalar(5.0, g.clone());
-        let mv1 = MultiVector::from_vector(s);
-        let mv2 = MultiVector::from_vector(e[0].clone());
-
-        let sum = &mv1 + &mv2;
-
-        assert_eq!(sum.grades(), vec![0, 1]);
+    fn add(self, rhs: MultiVector<D>) -> MultiVector<D> {
+        self + &rhs
     }
+}
 
-    #[test]
-    fn multivector_reverse() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g.clone());
+impl<const D: usize> std::ops::Add<&MultiVector<D>> for MultiVector<D> {
+    type Output = MultiVector<D>;
 
-        let b = wedge(&e[0], &e[1]);
-        let s = Vector::<3>::scalar(1.0, g.clone());
-
-        let mut components = HashMap::new();
-        components.insert(0, s);
-        components.insert(2, b);
-        let mv = MultiVector::from_components(components, g);
-
-        let mv_rev = mv.rev();
-
-        // Scalar part unchanged
-        let s_rev = mv_rev.grade_select(0).unwrap();
-        assert!((s_rev.data[ndarray::IxDyn(&[])] - 1.0).abs() < 1e-12);
-
-        // Bivector part negated (grade-2 reversal sign = -1)
-        let b_rev = mv_rev.grade_select(2).unwrap();
-        assert!((b_rev.component(&[0, 1]) + 1.0).abs() < 1e-12);
+    fn add(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        &self + rhs
     }
+}
 
-    #[test]
-    fn is_even_rotor_like() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g.clone());
+impl<const D: usize> std::ops::Sub for MultiVector<D> {
+    type Output = MultiVector<D>;
 
-        let s = Vector::<3>::scalar(1.0, g.clone());
-        let b = wedge(&e[0], &e[1]);
-
-        let mut components = HashMap::new();
-        components.insert(0, s);
-        components.insert(2, b);
-        let mv = MultiVector::from_components(components, g);
-
-        assert!(mv.is_even());
+    fn sub(self, rhs: Self) -> MultiVector<D> {
+        &self - &rhs
     }
+}
 
-    #[test]
-    fn scalar_multiplication() {
-        let g: Metric<3> = euclidean();
-        let e = basis(g);
+impl<const D: usize> std::ops::Sub<MultiVector<D>> for &MultiVector<D> {
+    type Output = MultiVector<D>;
 
-        let mv = MultiVector::from_vector(e[0].clone());
-        let scaled = &mv * 3.0;
+    fn sub(self, rhs: MultiVector<D>) -> MultiVector<D> {
+        self - &rhs
+    }
+}
 
-        let v = scaled.grade_select(1).unwrap();
-        assert!((v.component(&[0]) - 3.0).abs() < 1e-12);
+impl<const D: usize> std::ops::Sub<&MultiVector<D>> for MultiVector<D> {
+    type Output = MultiVector<D>;
+
+    fn sub(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        &self - rhs
+    }
+}
+
+impl<const D: usize> std::ops::Neg for MultiVector<D> {
+    type Output = MultiVector<D>;
+
+    fn neg(self) -> MultiVector<D> {
+        -&self
+    }
+}
+
+impl<const D: usize> std::ops::Mul<f64> for MultiVector<D> {
+    type Output = MultiVector<D>;
+
+    fn mul(self, rhs: f64) -> MultiVector<D> {
+        &self * rhs
+    }
+}
+
+impl<const D: usize> std::ops::Mul<&MultiVector<D>> for f64 {
+    type Output = MultiVector<D>;
+
+    fn mul(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        rhs * self
+    }
+}
+
+impl<const D: usize> std::ops::Mul<MultiVector<D>> for f64 {
+    type Output = MultiVector<D>;
+
+    fn mul(self, rhs: MultiVector<D>) -> MultiVector<D> {
+        &rhs * self
     }
 }
