@@ -307,8 +307,11 @@ fn geometric_grade_component<const D: usize>(
 
 /// Compute the product of metric components for contracted index pairs.
 ///
-/// Contracts the last c indices of u with the first c indices of v,
-/// pairing them in reverse order as in the Python implementation.
+/// Pairs the last c indices of u with the first c indices of v in
+/// reverse order: g(u_{last}, v_{first}) g(u_{last-1}, v_{second}) ...
+///
+/// The reverse pairing produces the correct signs for the Clifford product
+/// when c >= 2 (e.g. the scalar part of e12 * e12 = -1, not +1).
 fn contract_indices<const D: usize>(
     u_contracted: &[usize],
     v_contracted: &[usize],
@@ -316,6 +319,7 @@ fn contract_indices<const D: usize>(
 ) -> f64 {
     u_contracted
         .iter()
+        .rev()
         .zip(v_contracted.iter())
         .map(|(&a, &b)| g.component(a, b))
         .product()
@@ -501,6 +505,99 @@ pub fn interior_right<const D: usize>(u: &Vector<D>, v: &Vector<D>) -> Vector<D>
 }
 
 // =============================================================================
+// MultiVector Products
+// =============================================================================
+
+/// Geometric product: MultiVector * Vector.
+///
+/// Distributes the product over the grade components of the multivector.
+pub fn geometric_mv_v<const D: usize>(m: &MultiVector<D>, v: &Vector<D>) -> MultiVector<D> {
+    let mut result = MultiVector::zero(m.metric);
+
+    for component in m.components().values() {
+        let product = geometric(component, v);
+        result = &result + &product;
+    }
+
+    result
+}
+
+/// Geometric product: Vector * MultiVector.
+///
+/// Distributes the product over the grade components of the multivector.
+pub fn geometric_v_mv<const D: usize>(v: &Vector<D>, m: &MultiVector<D>) -> MultiVector<D> {
+    let mut result = MultiVector::zero(m.metric);
+
+    for component in m.components().values() {
+        let product = geometric(v, component);
+        result = &result + &product;
+    }
+
+    result
+}
+
+/// Geometric product: MultiVector * MultiVector.
+///
+/// Distributes over the grade components of both operands.
+pub fn geometric_mv_mv<const D: usize>(m: &MultiVector<D>, n: &MultiVector<D>) -> MultiVector<D> {
+    let mut result = MultiVector::zero(m.metric);
+
+    for m_component in m.components().values() {
+        for n_component in n.components().values() {
+            let product = geometric(m_component, n_component);
+            result = &result + &product;
+        }
+    }
+
+    result
+}
+
+// =============================================================================
+// Projection and Reflection
+// =============================================================================
+
+/// Project vector u onto blade v.
+///
+/// proj_v(u) = (u ⌋ v) ⌋ v^{-1}
+///
+/// For grade-1 vectors, this reduces to the familiar (u · v) / |v|² v.
+/// For projecting a vector onto a higher-grade blade, returns the component
+/// of u lying in the subspace spanned by v.
+pub fn project<const D: usize>(u: &Vector<D>, v: &Vector<D>) -> Vector<D> {
+    let contracted = interior_left(u, v);
+    let v_inv = inverse(v).expect("cannot project onto zero or non-invertible blade");
+
+    // contracted ⌋ v_inv gives back a grade-1 result
+    interior_left(&contracted, &v_inv)
+}
+
+/// Reject vector u from blade v: the component of u orthogonal to v.
+///
+/// rej_v(u) = u - proj_v(u)
+pub fn reject<const D: usize>(u: &Vector<D>, v: &Vector<D>) -> Vector<D> {
+    u - &project(u, v)
+}
+
+/// Reflect vector u through the hyperplane perpendicular to unit vector n.
+///
+/// refl_n(u) = -n u n^{-1}
+///
+/// Flips the component of u parallel to n, preserves the perpendicular part.
+pub fn reflect<const D: usize>(u: &Vector<D>, n: &Vector<D>) -> Vector<D> {
+    assert_eq!(
+        n.grade(),
+        1,
+        "reflect requires a grade-1 vector as mirror normal"
+    );
+    let n_inv = inverse(n).expect("cannot reflect through zero vector");
+
+    // -n * u * n^{-1}, extract grade 1
+    let product = geometric_mv_v(&geometric(n, u), &n_inv);
+
+    -&product.grade_project(1)
+}
+
+// =============================================================================
 // Inverse
 // =============================================================================
 
@@ -569,6 +666,74 @@ impl_product_op!(Shl, shl, interior_left -> Vector);
 
 // Right interior product: u >> v
 impl_product_op!(Shr, shr, interior_right -> Vector);
+
+/// Implement a mixed product operator: LHS_type * RHS_type -> Output_type.
+macro_rules! impl_mixed_product_op {
+    ($trait:ident, $method:ident, $func:ident, $lhs:ident, $rhs:ident -> $output:ident) => {
+        impl<const D: usize> std::ops::$trait<&$rhs<D>> for &$lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: &$rhs<D>) -> $output<D> {
+                $func(self, rhs)
+            }
+        }
+
+        impl<const D: usize> std::ops::$trait<$rhs<D>> for $lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: $rhs<D>) -> $output<D> {
+                $func(&self, &rhs)
+            }
+        }
+
+        impl<const D: usize> std::ops::$trait<$rhs<D>> for &$lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: $rhs<D>) -> $output<D> {
+                $func(self, &rhs)
+            }
+        }
+
+        impl<const D: usize> std::ops::$trait<&$rhs<D>> for $lhs<D> {
+            type Output = $output<D>;
+            fn $method(self, rhs: &$rhs<D>) -> $output<D> {
+                $func(&self, rhs)
+            }
+        }
+    };
+}
+
+// Geometric product: MultiVector * Vector -> MultiVector
+impl_mixed_product_op!(Mul, mul, geometric_mv_v, MultiVector, Vector -> MultiVector);
+
+// Geometric product: Vector * MultiVector -> MultiVector
+impl_mixed_product_op!(Mul, mul, geometric_v_mv, Vector, MultiVector -> MultiVector);
+
+// Geometric product: MultiVector * MultiVector -> MultiVector
+impl<const D: usize> std::ops::Mul for &MultiVector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        geometric_mv_mv(self, rhs)
+    }
+}
+
+impl<const D: usize> std::ops::Mul for MultiVector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: MultiVector<D>) -> MultiVector<D> {
+        geometric_mv_mv(&self, &rhs)
+    }
+}
+
+impl<const D: usize> std::ops::Mul<MultiVector<D>> for &MultiVector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: MultiVector<D>) -> MultiVector<D> {
+        geometric_mv_mv(self, &rhs)
+    }
+}
+
+impl<const D: usize> std::ops::Mul<&MultiVector<D>> for MultiVector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        geometric_mv_mv(&self, rhs)
+    }
+}
 
 // =============================================================================
 // Helpers
