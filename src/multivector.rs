@@ -77,6 +77,27 @@ impl<const D: usize> MultiVector<D> {
     pub fn is_zero(&self, tol: f64) -> bool {
         self.components.values().all(|v| v.is_zero(tol))
     }
+
+    /// Access the grade-indexed component map.
+    pub fn components(&self) -> &HashMap<usize, Vector<D>> {
+        &self.components
+    }
+
+    /// Extract grade-k component, returning a zero vector if absent.
+    pub fn grade_project(&self, k: usize) -> Vector<D> {
+        self.components
+            .get(&k)
+            .cloned()
+            .unwrap_or_else(|| Vector::zero(k, self.metric))
+    }
+
+    /// Extract the scalar (grade-0) value, defaulting to 0.
+    pub fn scalar_part(&self) -> f64 {
+        self.components
+            .get(&0)
+            .map(|v| v.data[ndarray::IxDyn(&[])])
+            .unwrap_or(0.0)
+    }
 }
 
 // =============================================================================
