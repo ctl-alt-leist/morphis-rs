@@ -1,5 +1,8 @@
 pub mod metric;
 pub mod multivector;
+pub mod operator;
 pub mod ops;
+pub mod outermorphism;
+pub(crate) mod util;
 pub mod vector;
 pub mod versor;

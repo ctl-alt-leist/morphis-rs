@@ -4,7 +4,8 @@ use ndarray::{ArrayD, IxDyn};
 
 use crate::metric::Metric;
 use crate::multivector::MultiVector;
-use crate::vector::{Vector, factorial};
+use crate::util::{factorial, indices_iter};
+use crate::vector::Vector;
 
 // =============================================================================
 // Structure Constants
@@ -54,7 +55,7 @@ fn generalized_delta(k: usize, d: usize) -> ArrayD<f64> {
     let norm = 1.0 / factorial(k) as f64;
 
     // Iterate over all upper index combinations
-    for upper in ordered_tuples(d, k) {
+    for upper in indices_iter(d, k) {
         // Check for repeated indices
         if has_repeats(&upper) {
             continue;
@@ -738,37 +739,6 @@ impl<const D: usize> std::ops::Mul<&MultiVector<D>> for MultiVector<D> {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-/// Iterate over all multi-indices of length k with each index in [0, d).
-fn indices_iter(d: usize, k: usize) -> Vec<Vec<usize>> {
-    if k == 0 {
-        return vec![vec![]];
-    }
-
-    let mut result = Vec::new();
-    let mut current = vec![0usize; k];
-    loop {
-        result.push(current.clone());
-
-        let mut pos = k - 1;
-        loop {
-            current[pos] += 1;
-            if current[pos] < d {
-                break;
-            }
-            current[pos] = 0;
-            if pos == 0 {
-                return result;
-            }
-            pos -= 1;
-        }
-    }
-}
-
-/// All ordered k-tuples from [0, d) (no requirement for increasing order).
-fn ordered_tuples(d: usize, k: usize) -> Vec<Vec<usize>> {
-    indices_iter(d, k)
-}
 
 /// Check if a slice has repeated values.
 fn has_repeats(v: &[usize]) -> bool {
