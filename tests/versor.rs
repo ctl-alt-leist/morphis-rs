@@ -39,8 +39,8 @@ fn rotor_is_unit_norm() {
     let plane = wedge(&e[0], &e[1]);
     let r = rotor(&plane, 1.23);
 
-    // R ~R should be scalar 1
-    let product = &r * &r.rev();
+    // R ~R should be scalar 1 (rev is cached on Rotor)
+    let product = &r * r.rev();
     assert!(
         (product.scalar_part() - 1.0).abs() < 1e-12,
         "R ~R should be 1, got scalar part {}",
@@ -188,7 +188,7 @@ fn explicit_sandwich_matches_transform() {
     let r = rotor(&plane, PI / 2.0);
 
     // Explicit: R * v * ~R, then grade-project
-    let explicit = (&(&r * &e[0]) * &r.rev()).grade_project(1);
+    let explicit = (&r * &e[0] * r.rev()).grade_project(1);
     let via_transform = transform(&e[0], &r);
 
     for m in 0..3 {
@@ -272,8 +272,7 @@ fn inverse_via_reverse() {
 
     // R^{-1} = ~R for a unit rotor. Applying ~R undoes R.
     let rotated = transform(&v, &r);
-    let r_rev = r.rev();
-    let recovered = transform(&rotated, &r_rev);
+    let recovered = transform(&rotated, r.rev());
 
     for m in 0..3 {
         assert!(
@@ -317,7 +316,7 @@ fn r_times_r_inverse_is_identity() {
     let v = &(&e[0] * 2.0) + &(&e[1] * 3.0);
 
     // R * ~R should act as identity on v
-    let r_identity = &r * &r.rev();
+    let r_identity = &r * r.rev();
     let result = transform(&v, &r_identity);
 
     for m in 0..3 {

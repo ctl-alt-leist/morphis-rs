@@ -1,6 +1,39 @@
+use std::ops::Deref;
+
 use crate::multivector::MultiVector;
-use crate::ops::{geometric_mv_mv, geometric_mv_v};
+use crate::ops::{geometric_mv_mv, geometric_mv_v, geometric_v_mv};
 use crate::vector::Vector;
+
+// =============================================================================
+// Rotor Type
+// =============================================================================
+
+/// A rotor: an even-grade unit multivector with cached reverse.
+///
+/// A `Rotor` derefs to `MultiVector`, so it can be used anywhere a
+/// multivector reference is expected — all existing operators and
+/// functions work transparently. The cached reverse avoids recomputation
+/// when the same rotor is applied to many elements.
+#[derive(Debug, Clone)]
+pub struct Rotor<const D: usize> {
+    mv: MultiVector<D>,
+    mv_rev: MultiVector<D>,
+}
+
+impl<const D: usize> Deref for Rotor<D> {
+    type Target = MultiVector<D>;
+
+    fn deref(&self) -> &MultiVector<D> {
+        &self.mv
+    }
+}
+
+impl<const D: usize> Rotor<D> {
+    /// Cached reverse: returns a reference rather than recomputing.
+    pub fn rev(&self) -> &MultiVector<D> {
+        &self.mv_rev
+    }
+}
 
 // =============================================================================
 // Sandwich Product
@@ -45,15 +78,18 @@ pub fn transform_mv<const D: usize>(n: &MultiVector<D>, m: &MultiVector<D>) -> M
 
 /// Create a rotor from a bivector plane and rotation angle.
 ///
-/// The rotor is the multivector M = cos(θ/2) - sin(θ/2) B̂ where B̂ is
-/// the unit bivector in the plane of rotation. Apply via the sandwich
-/// product, either explicitly or through `transform`:
+/// The rotor is M = cos(θ/2) - sin(θ/2) B̂ where B̂ is the unit bivector
+/// in the plane of rotation. The reverse is cached at construction.
+///
+/// A `Rotor` derefs to `MultiVector`, so all multivector operators work
+/// directly:
 ///
 /// ```text
-/// v' = M v ~M          // explicit
-/// v' = transform(v, M) // with grade projection
+/// v' = &R * &v * R.rev()   // explicit sandwich product
+/// v' = transform(&v, &R)   // with grade projection
+/// R3 = &R2 * &R1           // composition via geometric product
 /// ```
-pub fn rotor<const D: usize>(plane: &Vector<D>, angle: f64) -> MultiVector<D> {
+pub fn rotor<const D: usize>(plane: &Vector<D>, angle: f64) -> Rotor<D> {
     assert_eq!(
         plane.grade(),
         2,
@@ -69,5 +105,55 @@ pub fn rotor<const D: usize>(plane: &Vector<D>, angle: f64) -> MultiVector<D> {
     let scalar = Vector::scalar(half.cos(), plane.metric);
     let bivector = &plane_unit * (-half.sin());
 
-    MultiVector::from_vector(scalar) + MultiVector::from_vector(bivector)
+    let mv = MultiVector::from_vector(scalar) + MultiVector::from_vector(bivector);
+    let mv_rev = mv.rev();
+
+    Rotor { mv, mv_rev }
+}
+
+// =============================================================================
+// Operator Overloads
+// =============================================================================
+
+// Deref coercion does not apply to binary operators in Rust, so we
+// implement the geometric product for Rotor operands explicitly.
+
+// Rotor * Rotor -> MultiVector (composition)
+impl<const D: usize> std::ops::Mul for &Rotor<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &Rotor<D>) -> MultiVector<D> {
+        geometric_mv_mv(&self.mv, &rhs.mv)
+    }
+}
+
+// Rotor * Vector -> MultiVector (first half of sandwich)
+impl<const D: usize> std::ops::Mul<&Vector<D>> for &Rotor<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &Vector<D>) -> MultiVector<D> {
+        geometric_mv_v(&self.mv, rhs)
+    }
+}
+
+// Vector * Rotor -> MultiVector
+impl<const D: usize> std::ops::Mul<&Rotor<D>> for &Vector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &Rotor<D>) -> MultiVector<D> {
+        geometric_v_mv(self, &rhs.mv)
+    }
+}
+
+// MultiVector * Rotor -> MultiVector (chaining composed products)
+impl<const D: usize> std::ops::Mul<&Rotor<D>> for &MultiVector<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &Rotor<D>) -> MultiVector<D> {
+        geometric_mv_mv(self, &rhs.mv)
+    }
+}
+
+// Rotor * MultiVector -> MultiVector
+impl<const D: usize> std::ops::Mul<&MultiVector<D>> for &Rotor<D> {
+    type Output = MultiVector<D>;
+    fn mul(self, rhs: &MultiVector<D>) -> MultiVector<D> {
+        geometric_mv_mv(&self.mv, rhs)
+    }
 }
