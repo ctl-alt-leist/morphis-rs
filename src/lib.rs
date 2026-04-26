@@ -1,3 +1,4 @@
+pub mod duality;
 pub mod exponential;
 pub mod metric;
 pub mod multivector;

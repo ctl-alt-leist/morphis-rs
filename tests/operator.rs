@@ -3,8 +3,8 @@ use ndarray::{ArrayD, IxDyn};
 
 use morphis::metric::{Metric, euclidean};
 use morphis::operator::Operator;
-use morphis::ops::{geometric, interior_left, wedge};
-use morphis::vector::{Vector, basis};
+use morphis::ops::{interior_left, wedge};
+use morphis::vector::basis;
 
 // =============================================================================
 // Identity
