@@ -1,6 +1,7 @@
 use ndarray::{ArrayD, IxDyn};
 
 use crate::metric::Metric;
+use crate::util::{factorial, indices_iter};
 
 /// A k-vector in geometric algebra.
 ///
@@ -371,40 +372,4 @@ pub fn pseudoscalar<const D: usize>(metric: Metric<D>) -> Vector<D> {
     let indices: Vec<usize> = (0..D).collect();
 
     basis_element(&indices, metric)
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/// Iterate over all multi-indices of length `k` with each index in [0, d).
-fn indices_iter(d: usize, k: usize) -> Vec<Vec<usize>> {
-    if k == 0 {
-        return vec![vec![]];
-    }
-
-    let mut result = Vec::new();
-    let mut current = vec![0usize; k];
-    loop {
-        result.push(current.clone());
-
-        // Increment the multi-index (odometer style)
-        let mut pos = k - 1;
-        loop {
-            current[pos] += 1;
-            if current[pos] < d {
-                break;
-            }
-            current[pos] = 0;
-            if pos == 0 {
-                return result;
-            }
-            pos -= 1;
-        }
-    }
-}
-
-/// Factorial of n.
-pub(crate) fn factorial(n: usize) -> usize {
-    (1..=n).product()
 }
