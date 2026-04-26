@@ -230,8 +230,9 @@ impl<const D: usize> Operator<D> {
 
     /// Solve the inverse problem: find x such that L(x) ≈ y.
     ///
-    /// Uses least-squares via SVD. For overdetermined systems, finds the
-    /// minimum-residual solution. For underdetermined, finds the minimum-norm.
+    /// Uses least-squares via pseudoinverse. For overdetermined systems,
+    /// finds the minimum-residual solution. For underdetermined, finds
+    /// the minimum-norm solution.
     pub fn solve(&self, y: &Vector<D>) -> Vector<D> {
         assert_eq!(
             y.grade(),
@@ -244,6 +245,56 @@ impl<const D: usize> Operator<D> {
         let pinv = self.pseudoinverse();
 
         pinv.apply(y)
+    }
+
+    /// Solve with Tikhonov regularization: min ||L(x) - y||² + α||x||².
+    ///
+    /// The regularization parameter α controls the trade-off between
+    /// fitting the data and keeping the solution small. Solves via
+    /// the normal equations: (L†L + αI) x = L†y.
+    pub fn solve_regularized(&self, y: &Vector<D>, alpha: f64) -> Vector<D> {
+        assert_eq!(
+            y.grade(),
+            self.out_grade,
+            "target grade {} does not match operator output grade {}",
+            y.grade(),
+            self.out_grade,
+        );
+
+        let matrix = self.to_matrix();
+        let mt = matrix.transpose();
+        let mut mtm = &mt * &matrix;
+
+        // Add α I to the diagonal
+        let n = mtm.nrows();
+        for m in 0..n {
+            mtm[(m, m)] += alpha;
+        }
+
+        // Flatten y to a vector
+        let in_flat = D.pow(self.out_grade as u32);
+        let mut y_flat = nalgebra::DVector::zeros(in_flat);
+        for out_idx in crate::util::indices_iter(D, self.out_grade) {
+            let row = crate::util::flatten_index(&out_idx, D);
+            y_flat[row] = y.data[ndarray::IxDyn(&out_idx)];
+        }
+
+        // (L†L + αI) x = L† y
+        let rhs = &mt * y_flat;
+        let decomp = mtm.lu();
+        let x_flat = decomp
+            .solve(&rhs)
+            .expect("regularized system should be solvable");
+
+        // Reshape back to Vector
+        let shape: Vec<usize> = vec![D; self.in_grade];
+        let mut result = ndarray::ArrayD::zeros(ndarray::IxDyn(&shape));
+        for in_idx in crate::util::indices_iter(D, self.in_grade) {
+            let col = crate::util::flatten_index(&in_idx, D);
+            result[ndarray::IxDyn(&in_idx)] = x_flat[col];
+        }
+
+        Vector::new(result, self.in_grade, self.metric)
     }
 }
 

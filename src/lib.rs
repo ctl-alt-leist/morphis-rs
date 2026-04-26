@@ -1,3 +1,4 @@
+pub mod exponential;
 pub mod metric;
 pub mod multivector;
 pub mod operator;

@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use crate::exponential::exp;
 use crate::multivector::MultiVector;
 use crate::ops::{geometric_mv_mv, geometric_mv_v, geometric_v_mv};
 use crate::vector::Vector;
@@ -101,11 +102,9 @@ pub fn rotor<const D: usize>(plane: &Vector<D>, angle: f64) -> Rotor<D> {
         .normalize()
         .expect("rotor plane bivector must be nonzero");
 
-    let half = angle / 2.0;
-    let scalar = Vector::scalar(half.cos(), plane.metric);
-    let bivector = &plane_unit * (-half.sin());
-
-    let mv = MultiVector::from_vector(scalar) + MultiVector::from_vector(bivector);
+    // R = exp(-B̂ θ/2)
+    let generator = &plane_unit * (-angle / 2.0);
+    let mv = exp(&generator);
     let mv_rev = mv.rev();
 
     Rotor { mv, mv_rev }
