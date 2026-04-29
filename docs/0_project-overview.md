@@ -14,12 +14,14 @@ Morphis provides tools for working with geometric algebra:
 - **Operations**: Products, norms, projections, duality
 - **Operator API**: `^` (wedge), `*` (geometric), `<<` / `>>` (interior products)
 - **Transforms**: Rotors, translators, motors, PGA (planned)
+- **Fields**: Spatially-varying GA objects on periodic grids with spectral derivatives
 
 The package provides mathematical tools. Applications live in examples.
 
 ## Documentation
 
 - `1_concepts/` — Mathematical foundations and GA concepts
+- `2_fields.md` — Field theory: grids, spatial derivatives, even-subalgebra fields
 
 ## Resources
 
