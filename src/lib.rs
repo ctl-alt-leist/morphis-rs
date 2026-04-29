@@ -1,5 +1,9 @@
+pub mod even_field;
+pub mod field;
+pub mod grid;
 pub mod metric;
 pub mod multivector;
 pub mod ops;
+pub mod spectral;
 pub mod vector;
 pub mod versor;
