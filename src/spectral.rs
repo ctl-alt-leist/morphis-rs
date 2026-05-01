@@ -18,7 +18,10 @@ use crate::vector::Vector;
 ///
 /// Input shape: [N; D] (spatial only).
 /// Returns complex array of the same shape.
-fn fft_forward<const D: usize>(real_data: &ArrayD<f64>, n: usize) -> ArrayD<Complex<f64>> {
+pub(crate) fn fft_forward<const D: usize>(
+    real_data: &ArrayD<f64>,
+    n: usize,
+) -> ArrayD<Complex<f64>> {
     let shape: Vec<usize> = real_data.shape().to_vec();
 
     // Convert real to complex
@@ -42,7 +45,10 @@ fn fft_forward<const D: usize>(real_data: &ArrayD<f64>, n: usize) -> ArrayD<Comp
 ///
 /// Input shape: [N; D] (spatial only, complex).
 /// Returns real array of the same shape.
-fn fft_inverse<const D: usize>(complex_data: &ArrayD<Complex<f64>>, n: usize) -> ArrayD<f64> {
+pub(crate) fn fft_inverse<const D: usize>(
+    complex_data: &ArrayD<Complex<f64>>,
+    n: usize,
+) -> ArrayD<f64> {
     let shape: Vec<usize> = complex_data.shape().to_vec();
 
     let mut data = complex_data.clone();
@@ -136,11 +142,16 @@ impl<const D: usize> Field<D> {
             // Forward FFT
             let mut hat = fft_forward::<D>(&component, n);
 
-            // Multiply by i*k_a at each frequency
+            // Multiply by i*k_a at each frequency, zeroing the Nyquist mode
+            let nyquist = n / 2;
             for freq_idx in spatial_indices_iter::<D>(n) {
-                let k_a = self.grid.wavenumber(freq_idx[axis]);
-                let ik_a = Complex::new(0.0, k_a);
-                hat[IxDyn(&freq_idx)] *= ik_a;
+                if freq_idx[axis] == nyquist {
+                    hat[IxDyn(&freq_idx)] = Complex::new(0.0, 0.0);
+                } else {
+                    let k_a = self.grid.wavenumber(freq_idx[axis]);
+                    let ik_a = Complex::new(0.0, k_a);
+                    hat[IxDyn(&freq_idx)] *= ik_a;
+                }
             }
 
             // Inverse FFT
