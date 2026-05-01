@@ -6,11 +6,13 @@
 //! pseudoscalar coefficient.
 
 use ndarray::{ArrayD, IxDyn};
+use ndrustfft::Complex;
 
-use crate::field::{Field, spatial_indices_iter};
+use crate::field::{Field, field_shape, spatial_indices_iter};
 use crate::grid::Grid;
 use crate::metric::Metric;
 use crate::multivector::MultiVector;
+use crate::spectral::{fft_forward, fft_inverse};
 use crate::vector::Vector;
 
 /// A field valued in the even subalgebra G^+ = G^0 ⊕ G^D.
@@ -182,6 +184,184 @@ impl<const D: usize> EvenField<D> {
     /// Grid geometry.
     pub fn grid(&self) -> &Grid<D> {
         &self.grid
+    }
+
+    /// Integrated norm squared: ∫ |α|² dV = Σ (a² + b²) · V_cell.
+    ///
+    /// This is the conserved norm — the split-step integrator must
+    /// preserve it to machine precision.
+    pub fn integrate_norm_squared(&self) -> f64 {
+        let n = self.grid.n_cells;
+        let mut sum = 0.0;
+
+        for spatial_idx in spatial_indices_iter::<D>(n) {
+            let a = self.scalar[IxDyn(&spatial_idx)];
+            let b = self.pseudoscalar[IxDyn(&spatial_idx)];
+            sum += a * a + b * b;
+        }
+
+        sum * self.grid.cell_volume()
+    }
+
+    /// Spectral Laplacian, applied componentwise.
+    ///
+    /// FFT each component, multiply by -|k|², IFFT. Grade-preserving:
+    /// even subalgebra in, even subalgebra out.
+    pub fn laplacian(&self) -> EvenField<D> {
+        let n = self.grid.n_cells;
+
+        let scalar_lap = self.laplacian_component(&self.scalar, n);
+        let pseudo_lap = self.laplacian_component(&self.pseudoscalar, n);
+
+        EvenField {
+            scalar: scalar_lap,
+            pseudoscalar: pseudo_lap,
+            metric: self.metric,
+            grid: self.grid,
+        }
+    }
+
+    /// Laplacian of a single spatial array.
+    fn laplacian_component(&self, component: &ArrayD<f64>, n: usize) -> ArrayD<f64> {
+        let mut hat = fft_forward::<D>(component, n);
+
+        let mut freq = [0usize; D];
+        for freq_idx in spatial_indices_iter::<D>(n) {
+            freq[..D].copy_from_slice(&freq_idx[..D]);
+            let k_sq = self.grid.k_squared(&freq);
+            hat[IxDyn(&freq_idx)] *= -k_sq;
+        }
+
+        fft_inverse::<D>(&hat, n)
+    }
+
+    /// Gradient of each component: [grad(scalar), grad(pseudoscalar)].
+    ///
+    /// Returns two grade-1 (vector) `Field<D>` values. Each direction
+    /// is computed spectrally with Nyquist zeroing for odd-order safety.
+    pub fn gradient_components(&self) -> [Field<D>; 2] {
+        [
+            self.gradient_of_component(&self.scalar),
+            self.gradient_of_component(&self.pseudoscalar),
+        ]
+    }
+
+    /// Spectral gradient of a single spatial array, returned as a grade-1 field.
+    fn gradient_of_component(&self, component: &ArrayD<f64>) -> Field<D> {
+        let n = self.grid.n_cells;
+        let shape = field_shape::<D>(n, 1);
+        let mut result_data = ArrayD::<f64>::zeros(IxDyn(&shape));
+        let nyquist = n / 2;
+
+        // One forward FFT for this component
+        let hat = fft_forward::<D>(component, n);
+
+        // For each spatial direction, multiply by i*k_d (with Nyquist zeroing), IFFT
+        for d in 0..D {
+            let mut hat_d = hat.clone();
+
+            for freq_idx in spatial_indices_iter::<D>(n) {
+                if freq_idx[d] == nyquist {
+                    hat_d[IxDyn(&freq_idx)] = Complex::new(0.0, 0.0);
+                } else {
+                    let k_d = self.grid.wavenumber(freq_idx[d]);
+                    hat_d[IxDyn(&freq_idx)] *= Complex::new(0.0, k_d);
+                }
+            }
+
+            let deriv = fft_inverse::<D>(&hat_d, n);
+
+            // Write into the d-th component of the vector field
+            for spatial_idx in spatial_indices_iter::<D>(n) {
+                let mut full_idx = spatial_idx.clone();
+                full_idx.push(d);
+                result_data[IxDyn(&full_idx)] = deriv[IxDyn(&spatial_idx)];
+            }
+        }
+
+        Field::new(result_data, 1, &self.grid, self.metric)
+    }
+
+    /// Kinetic energy density: ½(|∇a|² + |∇b|²).
+    ///
+    /// Returns the gradient energy density as a scalar field, before
+    /// multiplication by the diffusivity parameter.
+    pub fn kinetic_energy_density(&self) -> Field<D> {
+        let [grad_a, grad_b] = self.gradient_components();
+
+        &(&grad_a.norm_squared() + &grad_b.norm_squared()) * 0.5
+    }
+
+    /// Build α from density and velocity potential (Madelung inverse).
+    ///
+    /// amplitude = sqrt(ρ / m), phase = φ_v / ν
+    /// α = (amplitude · cos(phase), amplitude · sin(phase))
+    pub fn madelung_inverse(
+        density: &Field<D>,
+        velocity_potential: &Field<D>,
+        mass: f64,
+        diffusivity: f64,
+    ) -> EvenField<D> {
+        assert_eq!(density.grade(), 0, "density must be a scalar field");
+        assert_eq!(
+            velocity_potential.grade(),
+            0,
+            "velocity potential must be a scalar field"
+        );
+        assert_eq!(
+            density.grid, velocity_potential.grid,
+            "fields must share the same grid"
+        );
+
+        let n = density.grid.n_cells;
+        let shape: Vec<usize> = vec![n; D];
+        let mut scalar = ArrayD::zeros(IxDyn(&shape));
+        let mut pseudoscalar = ArrayD::zeros(IxDyn(&shape));
+
+        for spatial_idx in spatial_indices_iter::<D>(n) {
+            let rho = density.data[IxDyn(&spatial_idx)];
+            let phi_v = velocity_potential.data[IxDyn(&spatial_idx)];
+            let amplitude = (rho / mass).sqrt();
+            let phase = phi_v / diffusivity;
+            scalar[IxDyn(&spatial_idx)] = amplitude * phase.cos();
+            pseudoscalar[IxDyn(&spatial_idx)] = amplitude * phase.sin();
+        }
+
+        EvenField {
+            scalar,
+            pseudoscalar,
+            metric: density.metric,
+            grid: density.grid,
+        }
+    }
+
+    /// Extract the Madelung velocity as a grade-1 vector field.
+    ///
+    /// v_d(x) = ν / (a² + b²) · (a ∂_d b - b ∂_d a)
+    ///
+    /// Where |α|² < 1e-30, the denominator is clamped to avoid
+    /// division by zero in vacuum regions.
+    pub fn madelung_velocity(&self, diffusivity: f64) -> Field<D> {
+        let [grad_a, grad_b] = self.gradient_components();
+        let n = self.grid.n_cells;
+        let shape = field_shape::<D>(n, 1);
+        let mut result_data = ArrayD::<f64>::zeros(IxDyn(&shape));
+
+        for spatial_idx in spatial_indices_iter::<D>(n) {
+            let a = self.scalar[IxDyn(&spatial_idx)];
+            let b = self.pseudoscalar[IxDyn(&spatial_idx)];
+            let norm_sq = (a * a + b * b).max(1e-30);
+
+            for d in 0..D {
+                let mut full_idx = spatial_idx.clone();
+                full_idx.push(d);
+                let da_d = grad_a.data[IxDyn(&full_idx)];
+                let db_d = grad_b.data[IxDyn(&full_idx)];
+                result_data[IxDyn(&full_idx)] = diffusivity * (a * db_d - b * da_d) / norm_sq;
+            }
+        }
+
+        Field::new(result_data, 1, &self.grid, self.metric)
     }
 }
 

@@ -34,6 +34,11 @@ impl<const D: usize> Grid<D> {
         self.n_cells.pow(D as u32)
     }
 
+    /// Volume of a single grid cell (cell_length^D).
+    pub fn cell_volume(&self) -> f64 {
+        self.cell_length.powi(D as i32)
+    }
+
     /// Physical position of a grid point given its D-dimensional index.
     pub fn position(&self, indices: &[usize; D]) -> [f64; D] {
         let mut pos = [0.0; D];

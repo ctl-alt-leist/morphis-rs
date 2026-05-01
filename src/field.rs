@@ -225,6 +225,63 @@ impl<const D: usize> Field<D> {
         self.data.sum()
     }
 
+    /// Integrated L² norm: ∫ |f|² dV.
+    ///
+    /// Computes the pointwise norm squared via metric contraction at each
+    /// grid point, accumulates, and multiplies by cell volume. Avoids
+    /// allocating an intermediate scalar field.
+    pub fn integrate_norm_squared(&self) -> f64 {
+        let n = self.grid.n_cells;
+        let mut sum = 0.0;
+
+        for spatial_idx in spatial_indices_iter::<D>(n) {
+            let v = self.at(&spatial_idx);
+            sum += v.norm_squared();
+        }
+
+        sum * self.grid.cell_volume()
+    }
+
+    /// Pointwise multiplication of a field by a spatially varying scalar field.
+    ///
+    /// The scalar field must be grade 0 and on the same grid. The result
+    /// has the same grade as `field`.
+    pub fn pointwise_scale(scalar_field: &Field<D>, field: &Field<D>) -> Field<D> {
+        assert_eq!(
+            scalar_field.grade, 0,
+            "first argument must be a scalar field (grade 0)"
+        );
+        assert_eq!(
+            scalar_field.grid, field.grid,
+            "fields must share the same grid"
+        );
+        let n = field.grid.n_cells;
+        let grade = field.grade;
+        let shape = field_shape::<D>(n, grade);
+        let mut data = ArrayD::zeros(IxDyn(&shape));
+
+        for spatial_idx in spatial_indices_iter::<D>(n) {
+            let s = scalar_field.data[IxDyn(&spatial_idx)];
+            if grade == 0 {
+                data[IxDyn(&spatial_idx)] = s * field.data[IxDyn(&spatial_idx)];
+            } else {
+                let mut full_idx = spatial_idx.clone();
+                for tensor_idx in tensor_indices_iter(D, grade) {
+                    full_idx.truncate(D);
+                    full_idx.extend_from_slice(&tensor_idx);
+                    data[IxDyn(&full_idx)] = s * field.data[IxDyn(&full_idx)];
+                }
+            }
+        }
+
+        Field {
+            data,
+            grade,
+            metric: field.metric,
+            grid: field.grid,
+        }
+    }
+
     /// Extract a single scalar component of the field as a scalar field.
     ///
     /// For a grade-k field, `tensor_indices` selects which component

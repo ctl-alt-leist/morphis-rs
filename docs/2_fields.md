@@ -11,7 +11,7 @@ let grid = Grid::<3>::new(64, 100.0);
 // 64^3 = 262,144 grid points, each cell 100/64 ≈ 1.5625 units wide
 ```
 
-The grid also provides wavenumber calculations for spectral operations: `wavenumber(m)` returns $2\pi m / L$ with appropriate negative-frequency wrapping for indices above `N/2`.
+The grid also provides wavenumber calculations for spectral operations: `wavenumber(m)` returns $2\pi m / L$ with appropriate negative-frequency wrapping for indices above `N/2`. The method `cell_volume()` returns the volume of a single grid cell ($\text{cell\_length}^D$).
 
 ## Field
 
@@ -57,7 +57,11 @@ Fields support the same operations as their pointwise elements:
 
 ### Integration
 
-For scalar fields: `f.integrate()` returns the volume integral $\int f \, dV$, and `f.sum()` returns the unweighted sum.
+For scalar fields: `f.integrate()` returns the volume integral $\int f \, dV$, and `f.sum()` returns the unweighted sum. For fields of any grade, `f.integrate_norm_squared()` returns $\int |f|^2 \, dV$ without allocating an intermediate scalar field.
+
+### Pointwise Scaling
+
+`Field::pointwise_scale(&scalar_field, &field)` multiplies a field of any grade by a spatially varying scalar field. This fills the gap between constant scaling (`&f * 3.0`) and full geometric products.
 
 ## Spectral Derivatives
 
@@ -65,7 +69,7 @@ All derivatives are computed in Fourier space with spectral accuracy on the peri
 
 ### Partial Derivative
 
-`f.partial(axis)` differentiates with respect to spatial axis `a` by multiplying the Fourier coefficients by $i k_a$. Grade-preserving: operates on each tensor component independently.
+`f.partial(axis)` differentiates with respect to spatial axis `a` by multiplying the Fourier coefficients by $i k_a$. Grade-preserving: operates on each tensor component independently. The Nyquist mode ($m = N/2$) is zeroed — the standard treatment for odd-order spectral derivatives on real data.
 
 ### Gradient (exterior derivative, grade-raising)
 
@@ -113,14 +117,28 @@ The spectral implementation satisfies these to machine precision:
 
 This type is the natural representation of wavefunctions in field theories: the amplitude and phase are encoded as the scalar and pseudoscalar parts.
 
-### Operations
+### Algebraic Operations
 
 - `psi.rev()` — complex conjugation: $(a + bI) \to (a - bI)$
 - `psi.mul(&other)` — pointwise complex multiplication (closed in even subalgebra)
 - `psi.norm_squared()` — returns scalar field $a^2 + b^2$
 - `psi.rotate_phase(&angle)` — multiply by $\exp(I\theta)$ pointwise
-- `psi.density(mass)` — extract $\rho = m |α|^2$
+- `psi.density(mass)` — extract $\rho = m |\alpha|^2$
+- `psi.integrate_norm_squared()` — conserved norm $\int |\alpha|^2 \, dV$
 - `psi.at(&indices)` — extract as `MultiVector<D>`
+
+### Spectral Operations
+
+- `psi.laplacian()` — spectral Laplacian applied componentwise, returns `EvenField<D>`
+- `psi.gradient_components()` — returns `[grad(scalar), grad(pseudoscalar)]` as two grade-1 vector fields, with Nyquist zeroing
+- `psi.kinetic_energy_density()` — gradient energy $\frac{1}{2}(|\nabla a|^2 + |\nabla b|^2)$
+
+### Madelung Representation
+
+The Madelung decomposition connects the wavefunction to fluid variables:
+
+- `EvenField::madelung_inverse(&density, &velocity_potential, mass, diffusivity)` — builds $\alpha$ from $\rho$ and $\phi_v$
+- `psi.madelung_velocity(diffusivity)` — extracts the velocity field $v_d = \frac{\nu}{|\alpha|^2}(a \, \partial_d b - b \, \partial_d a)$
 
 ### Phase Rotation
 
