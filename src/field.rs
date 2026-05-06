@@ -1,5 +1,6 @@
 use ndarray::{ArrayD, IxDyn};
 
+use crate::antisymmetric::n_components;
 use crate::grid::Grid;
 use crate::metric::Metric;
 use crate::vector::Vector;
@@ -10,11 +11,12 @@ use crate::vector::Vector;
 /// The field carries the metric and grid geometry, enabling both
 /// pointwise algebraic operations and spatial differential operators.
 ///
-/// For grade k on an N^D grid, the data shape is `[N; D] ++ [D; k]`:
+/// For grade k on an N^D grid, the data shape is `[N; D] ++ [C(D, k)]`:
 /// the first D axes are spatial indices (each of size n_cells) and
-/// the remaining k axes are the tensor indices of each element.
+/// the final axis holds the C(D, k) independent tensor components.
+/// For grade 0 (scalar fields), the shape is just `[N; D]`.
 pub struct Field<const D: usize> {
-    /// Field data with shape [N, N, ..., N, D, D, ..., D].
+    /// Field data with shape [N, N, ..., N, n_components].
     pub data: ArrayD<f64>,
     /// Grade of each element (0 = scalar, 1 = vector, 2 = bivector, ...).
     grade: usize,
@@ -27,7 +29,7 @@ pub struct Field<const D: usize> {
 impl<const D: usize> Field<D> {
     /// Create a field from raw data.
     ///
-    /// Data shape must be `[n_cells; D] ++ [D; grade]`.
+    /// Data shape must be `[n_cells; D] ++ [C(D, grade)]` (or `[n_cells; D]` for scalars).
     pub fn new(data: ArrayD<f64>, grade: usize, grid: &Grid<D>, metric: Metric<D>) -> Self {
         let expected_shape = field_shape::<D>(grid.n_cells, grade);
         assert_eq!(
@@ -66,15 +68,17 @@ impl<const D: usize> Field<D> {
         let shape = field_shape::<D>(n, grade);
         let mut data = ArrayD::zeros(IxDyn(&shape));
 
+        let n_comp = n_components(D, grade);
+
         for spatial_idx in spatial_indices_iter::<D>(n) {
-            let mut full_idx = spatial_idx.clone();
             if grade == 0 {
-                data[IxDyn(&full_idx)] = value.data[IxDyn(&[])];
+                data[IxDyn(&spatial_idx)] = value.scalar_value();
             } else {
-                for tensor_idx in tensor_indices_iter(D, grade) {
-                    full_idx.truncate(D);
-                    full_idx.extend_from_slice(&tensor_idx);
-                    data[IxDyn(&full_idx)] = value.data[IxDyn(&tensor_idx)];
+                let mut full_idx = spatial_idx.clone();
+                full_idx.push(0); // placeholder for component index
+                for c in 0..n_comp {
+                    *full_idx.last_mut().unwrap() = c;
+                    data[IxDyn(&full_idx)] = value.canonical_component(c);
                 }
             }
         }
@@ -88,9 +92,6 @@ impl<const D: usize> Field<D> {
     }
 
     /// Construct a field by evaluating a function at each grid point.
-    ///
-    /// The function receives the physical position and returns a `Vector<D>`
-    /// of the specified grade.
     pub fn from_fn(
         grade: usize,
         grid: &Grid<D>,
@@ -100,6 +101,7 @@ impl<const D: usize> Field<D> {
         let n = grid.n_cells;
         let shape = field_shape::<D>(n, grade);
         let mut data = ArrayD::zeros(IxDyn(&shape));
+        let n_comp = n_components(D, grade);
 
         let mut indices = [0usize; D];
         for spatial_idx in spatial_indices_iter::<D>(n) {
@@ -109,13 +111,13 @@ impl<const D: usize> Field<D> {
             assert_eq!(value.grade(), grade, "function returned wrong grade");
 
             if grade == 0 {
-                data[IxDyn(&spatial_idx)] = value.data[IxDyn(&[])];
+                data[IxDyn(&spatial_idx)] = value.scalar_value();
             } else {
                 let mut full_idx = spatial_idx.clone();
-                for tensor_idx in tensor_indices_iter(D, grade) {
-                    full_idx.truncate(D);
-                    full_idx.extend_from_slice(&tensor_idx);
-                    data[IxDyn(&full_idx)] = value.data[IxDyn(&tensor_idx)];
+                full_idx.push(0);
+                for c in 0..n_comp {
+                    *full_idx.last_mut().unwrap() = c;
+                    data[IxDyn(&full_idx)] = value.canonical_component(c);
                 }
             }
         }
@@ -173,17 +175,17 @@ impl<const D: usize> Field<D> {
             let val = self.data[IxDyn(indices)];
             Vector::scalar(val, self.metric)
         } else {
-            let tensor_shape: Vec<usize> = vec![D; grade];
-            let mut tensor_data = ArrayD::zeros(IxDyn(&tensor_shape));
-
+            let n_comp = n_components(D, grade);
             let mut full_idx: Vec<usize> = indices.to_vec();
-            for tensor_idx in tensor_indices_iter(D, grade) {
-                full_idx.truncate(D);
-                full_idx.extend_from_slice(&tensor_idx);
-                tensor_data[IxDyn(&tensor_idx)] = self.data[IxDyn(&full_idx)];
-            }
+            full_idx.push(0);
+            let comp_data: Vec<f64> = (0..n_comp)
+                .map(|c| {
+                    *full_idx.last_mut().unwrap() = c;
+                    self.data[IxDyn(&full_idx)]
+                })
+                .collect();
 
-            Vector::new(tensor_data, grade, self.metric)
+            Vector::from_sparse(comp_data, grade, self.metric)
         }
     }
 
@@ -194,13 +196,14 @@ impl<const D: usize> Field<D> {
         let grade = self.grade;
 
         if grade == 0 {
-            self.data[IxDyn(indices)] = value.data[IxDyn(&[])];
+            self.data[IxDyn(indices)] = value.scalar_value();
         } else {
+            let n_comp = n_components(D, grade);
             let mut full_idx: Vec<usize> = indices.to_vec();
-            for tensor_idx in tensor_indices_iter(D, grade) {
-                full_idx.truncate(D);
-                full_idx.extend_from_slice(&tensor_idx);
-                self.data[IxDyn(&full_idx)] = value.data[IxDyn(&tensor_idx)];
+            full_idx.push(0);
+            for c in 0..n_comp {
+                *full_idx.last_mut().unwrap() = c;
+                self.data[IxDyn(&full_idx)] = value.canonical_component(c);
             }
         }
     }
@@ -210,7 +213,7 @@ impl<const D: usize> Field<D> {
         self.data.iter().all(|x| x.abs() < tol)
     }
 
-    /// Volume integral of a scalar field: ∫ f dV.
+    /// Volume integral of a scalar field: int f dV.
     ///
     /// Each cell contributes value * cell_volume. Only valid for grade-0 fields.
     pub fn integrate(&self) -> f64 {
@@ -225,11 +228,7 @@ impl<const D: usize> Field<D> {
         self.data.sum()
     }
 
-    /// Integrated L² norm: ∫ |f|² dV.
-    ///
-    /// Computes the pointwise norm squared via metric contraction at each
-    /// grid point, accumulates, and multiplies by cell volume. Avoids
-    /// allocating an intermediate scalar field.
+    /// Integrated L2 norm: int |f|^2 dV.
     pub fn integrate_norm_squared(&self) -> f64 {
         let n = self.grid.n_cells;
         let mut sum = 0.0;
@@ -243,9 +242,6 @@ impl<const D: usize> Field<D> {
     }
 
     /// Pointwise multiplication of a field by a spatially varying scalar field.
-    ///
-    /// The scalar field must be grade 0 and on the same grid. The result
-    /// has the same grade as `field`.
     pub fn pointwise_scale(scalar_field: &Field<D>, field: &Field<D>) -> Field<D> {
         assert_eq!(
             scalar_field.grade, 0,
@@ -259,6 +255,7 @@ impl<const D: usize> Field<D> {
         let grade = field.grade;
         let shape = field_shape::<D>(n, grade);
         let mut data = ArrayD::zeros(IxDyn(&shape));
+        let n_comp = n_components(D, grade);
 
         for spatial_idx in spatial_indices_iter::<D>(n) {
             let s = scalar_field.data[IxDyn(&spatial_idx)];
@@ -266,9 +263,9 @@ impl<const D: usize> Field<D> {
                 data[IxDyn(&spatial_idx)] = s * field.data[IxDyn(&spatial_idx)];
             } else {
                 let mut full_idx = spatial_idx.clone();
-                for tensor_idx in tensor_indices_iter(D, grade) {
-                    full_idx.truncate(D);
-                    full_idx.extend_from_slice(&tensor_idx);
+                full_idx.push(0);
+                for c in 0..n_comp {
+                    *full_idx.last_mut().unwrap() = c;
                     data[IxDyn(&full_idx)] = s * field.data[IxDyn(&full_idx)];
                 }
             }
@@ -286,6 +283,7 @@ impl<const D: usize> Field<D> {
     ///
     /// For a grade-k field, `tensor_indices` selects which component
     /// (e.g., [0, 1] selects the e0^e1 component of a bivector field).
+    /// Handles antisymmetry: [1, 0] returns the negative of [0, 1].
     pub fn component_field(&self, tensor_indices: &[usize]) -> Field<D> {
         assert_eq!(
             tensor_indices.len(),
@@ -296,10 +294,28 @@ impl<const D: usize> Field<D> {
         let shape = field_shape::<D>(n, 0);
         let mut data = ArrayD::zeros(IxDyn(&shape));
 
+        // Determine the canonical component and sign
+        let (sign, flat) = if self.grade == 0 {
+            (1.0, 0)
+        } else {
+            match crate::antisymmetric::canonicalize(tensor_indices) {
+                None => {
+                    // Repeated indices: zero field
+                    return Field {
+                        data,
+                        grade: 0,
+                        metric: self.metric,
+                        grid: self.grid,
+                    };
+                }
+                Some((s, sorted)) => (s as f64, crate::antisymmetric::sorted_to_flat(&sorted)),
+            }
+        };
+
         for spatial_idx in spatial_indices_iter::<D>(n) {
             let mut full_idx = spatial_idx.clone();
-            full_idx.extend_from_slice(tensor_indices);
-            data[IxDyn(&spatial_idx)] = self.data[IxDyn(&full_idx)];
+            full_idx.push(flat);
+            data[IxDyn(&spatial_idx)] = sign * self.data[IxDyn(&full_idx)];
         }
 
         Field {
@@ -344,9 +360,6 @@ impl<const D: usize> Field<D> {
     }
 
     /// Pointwise norm squared: returns a scalar field (grade 0).
-    ///
-    /// At each grid point, computes the norm squared of the k-vector via
-    /// metric contraction.
     pub fn norm_squared(&self) -> Field<D> {
         let n = self.grid.n_cells;
         let shape = field_shape::<D>(n, 0);
@@ -366,14 +379,13 @@ impl<const D: usize> Field<D> {
     }
 
     /// Pointwise wedge product of two fields.
-    ///
-    /// Grade of result = grade(self) + grade(other).
     pub fn wedge(f: &Field<D>, g: &Field<D>) -> Field<D> {
         assert_eq!(f.grid, g.grid, "fields must share the same grid");
         let result_grade = f.grade + g.grade;
         let n = f.grid.n_cells;
         let shape = field_shape::<D>(n, result_grade);
         let mut data = ArrayD::zeros(IxDyn(&shape));
+        let n_comp = n_components(D, result_grade);
 
         for spatial_idx in spatial_indices_iter::<D>(n) {
             let fv = f.at(&spatial_idx);
@@ -381,13 +393,13 @@ impl<const D: usize> Field<D> {
             let w = crate::ops::wedge(&fv, &gv);
 
             if result_grade == 0 {
-                data[IxDyn(&spatial_idx)] = w.data[IxDyn(&[])];
+                data[IxDyn(&spatial_idx)] = w.scalar_value();
             } else {
                 let mut full_idx = spatial_idx.clone();
-                for tensor_idx in tensor_indices_iter(D, result_grade) {
-                    full_idx.truncate(D);
-                    full_idx.extend_from_slice(&tensor_idx);
-                    data[IxDyn(&full_idx)] = w.data[IxDyn(&tensor_idx)];
+                full_idx.push(0);
+                for c in 0..n_comp {
+                    *full_idx.last_mut().unwrap() = c;
+                    data[IxDyn(&full_idx)] = w.canonical_component(c);
                 }
             }
         }
@@ -401,8 +413,6 @@ impl<const D: usize> Field<D> {
     }
 
     /// Pointwise left interior product.
-    ///
-    /// Grade of result = grade(other) - grade(self).
     pub fn interior_left(f: &Field<D>, g: &Field<D>) -> Field<D> {
         assert_eq!(f.grid, g.grid, "fields must share the same grid");
         assert!(
@@ -413,6 +423,7 @@ impl<const D: usize> Field<D> {
         let n = f.grid.n_cells;
         let shape = field_shape::<D>(n, result_grade);
         let mut data = ArrayD::zeros(IxDyn(&shape));
+        let n_comp = n_components(D, result_grade);
 
         for spatial_idx in spatial_indices_iter::<D>(n) {
             let fv = f.at(&spatial_idx);
@@ -420,13 +431,13 @@ impl<const D: usize> Field<D> {
             let w = crate::ops::interior_left(&fv, &gv);
 
             if result_grade == 0 {
-                data[IxDyn(&spatial_idx)] = w.data[IxDyn(&[])];
+                data[IxDyn(&spatial_idx)] = w.scalar_value();
             } else {
                 let mut full_idx = spatial_idx.clone();
-                for tensor_idx in tensor_indices_iter(D, result_grade) {
-                    full_idx.truncate(D);
-                    full_idx.extend_from_slice(&tensor_idx);
-                    data[IxDyn(&full_idx)] = w.data[IxDyn(&tensor_idx)];
+                full_idx.push(0);
+                for c in 0..n_comp {
+                    *full_idx.last_mut().unwrap() = c;
+                    data[IxDyn(&full_idx)] = w.canonical_component(c);
                 }
             }
         }
@@ -440,9 +451,6 @@ impl<const D: usize> Field<D> {
     }
 
     /// Pointwise scalar product: returns a scalar field.
-    ///
-    /// The scalar product of two same-grade elements is the grade-0 part
-    /// of their geometric product.
     pub fn scalar_product(f: &Field<D>, g: &Field<D>) -> Field<D> {
         assert_eq!(f.grid, g.grid, "fields must share the same grid");
         assert_eq!(f.grade, g.grade, "scalar product requires same grade");
@@ -576,10 +584,13 @@ impl<const D: usize> std::ops::Mul<f64> for Field<D> {
 // Helpers
 // =============================================================================
 
-/// Shape of a field's data array: [n_cells; D] ++ [D; grade].
+/// Shape of a field's data array: [n_cells; D] ++ [C(D, grade)] for grade > 0,
+/// or [n_cells; D] for scalars.
 pub(crate) fn field_shape<const D: usize>(n_cells: usize, grade: usize) -> Vec<usize> {
     let mut shape = vec![n_cells; D];
-    shape.extend(std::iter::repeat_n(D, grade));
+    if grade > 0 {
+        shape.push(n_components(D, grade));
+    }
     shape
 }
 
@@ -606,32 +617,6 @@ pub(crate) fn spatial_indices_iter<const D: usize>(n: usize) -> Vec<Vec<usize>> 
     result
 }
 
-/// Iterate over all tensor multi-indices of length `grade` with values in [0, dim).
-pub(crate) fn tensor_indices_iter(dim: usize, grade: usize) -> Vec<Vec<usize>> {
-    if grade == 0 {
-        return vec![vec![]];
-    }
-
-    let total = dim.pow(grade as u32);
-    let mut result = Vec::with_capacity(total);
-    let mut current = vec![0usize; grade];
-
-    for _ in 0..total {
-        result.push(current.clone());
-
-        let mut pos = grade;
-        while pos > 0 {
-            pos -= 1;
-            current[pos] += 1;
-            if current[pos] < dim {
-                break;
-            }
-            current[pos] = 0;
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,14 +630,16 @@ mod tests {
 
     #[test]
     fn field_shape_vector() {
+        // D=3, grade 1: C(3,1) = 3
         let shape = field_shape::<3>(4, 1);
         assert_eq!(shape, vec![4, 4, 4, 3]);
     }
 
     #[test]
     fn field_shape_bivector() {
+        // D=3, grade 2: C(3,2) = 3
         let shape = field_shape::<3>(4, 2);
-        assert_eq!(shape, vec![4, 4, 4, 3, 3]);
+        assert_eq!(shape, vec![4, 4, 4, 3]);
     }
 
     #[test]
@@ -661,20 +648,6 @@ mod tests {
         assert_eq!(indices.len(), 9); // 3^2
         assert_eq!(indices[0], vec![0, 0]);
         assert_eq!(indices[8], vec![2, 2]);
-    }
-
-    #[test]
-    fn tensor_indices_grade0() {
-        let indices = tensor_indices_iter(3, 0);
-        assert_eq!(indices, vec![vec![]]);
-    }
-
-    #[test]
-    fn tensor_indices_grade1() {
-        let indices = tensor_indices_iter(3, 1);
-        assert_eq!(indices.len(), 3);
-        assert_eq!(indices[0], vec![0]);
-        assert_eq!(indices[2], vec![2]);
     }
 
     #[test]

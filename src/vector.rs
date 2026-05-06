@@ -1,19 +1,24 @@
 use ndarray::{ArrayD, IxDyn};
 
+use crate::antisymmetric::{
+    binomial, canonical_indices, canonicalize, n_components, sorted_to_flat,
+};
 use crate::metric::Metric;
 
 /// A k-vector in geometric algebra.
 ///
 /// Represents a homogeneous multivector of pure grade k in a D-dimensional
-/// vector space. Storage is a full antisymmetric tensor of shape [D; K],
-/// where antisymmetry is an invariant maintained by constructors and
-/// operations.
+/// vector space. Storage is sparse: only the C(D, k) independent components
+/// (corresponding to strictly-increasing index tuples) are stored. The full
+/// antisymmetric tensor semantics are maintained through the access API —
+/// `component(&[1, 0])` returns `-component(&[0, 1])`.
 ///
 /// Scalars have grade 0, vectors grade 1, bivectors grade 2, etc.
 #[derive(Debug, Clone)]
 pub struct Vector<const D: usize> {
-    /// Antisymmetric tensor components. Shape is [D] repeated `grade` times.
-    pub data: ArrayD<f64>,
+    /// Independent components in combinadic order.
+    /// Length is C(D, grade).
+    data: Vec<f64>,
     /// Grade of this k-vector (0 = scalar, 1 = vector, 2 = bivector, ...).
     grade: usize,
     /// Metric defining the inner product structure.
@@ -21,20 +26,55 @@ pub struct Vector<const D: usize> {
 }
 
 impl<const D: usize> Vector<D> {
-    /// Create a new k-vector from raw antisymmetric tensor data.
+    /// Create a k-vector from a dense antisymmetric tensor (ndarray).
     ///
-    /// The data shape must be [D] repeated `grade` times. Antisymmetry is
-    /// assumed — the caller is responsible for providing valid data.
+    /// Accepts the full [D; grade]-shaped array and extracts only the
+    /// canonical (strictly-increasing) components. For grade 1, this is
+    /// just a direct copy since all D components are independent.
     pub fn new(data: ArrayD<f64>, grade: usize, metric: Metric<D>) -> Self {
+        if grade == 0 {
+            return Self::scalar(data[IxDyn(&[])], metric);
+        }
+
         let expected_shape: Vec<usize> = vec![D; grade];
         assert_eq!(
             data.shape(),
             expected_shape.as_slice(),
-            "data shape {:?} does not match expected {:?} for grade-{} vector in {}-dimensional space",
+            "data shape {:?} does not match expected {:?}",
             data.shape(),
             expected_shape,
+        );
+
+        let n_comp = n_components(D, grade);
+        let mut sparse = vec![0.0; n_comp];
+        let canonical = canonical_indices(D, grade);
+
+        for (flat, indices) in canonical.iter().enumerate() {
+            sparse[flat] = data[IxDyn(indices)];
+        }
+
+        Self {
+            data: sparse,
             grade,
+            metric,
+        }
+    }
+
+    /// Create a new k-vector from sparse component data.
+    ///
+    /// The data must have length C(D, grade), with entries ordered by
+    /// the combinatorial number system (strictly-increasing index tuples).
+    pub fn from_sparse(data: Vec<f64>, grade: usize, metric: Metric<D>) -> Self {
+        let expected = n_components(D, grade);
+        assert_eq!(
+            data.len(),
+            expected,
+            "data length {} does not match expected C({}, {}) = {} for grade-{} vector",
+            data.len(),
             D,
+            grade,
+            expected,
+            grade,
         );
 
         Self {
@@ -46,11 +86,10 @@ impl<const D: usize> Vector<D> {
 
     /// Create a zero k-vector of the given grade.
     pub fn zero(grade: usize, metric: Metric<D>) -> Self {
-        let shape: Vec<usize> = vec![D; grade];
-        let data = ArrayD::zeros(IxDyn(&shape));
+        let n = n_components(D, grade);
 
         Self {
-            data,
+            data: vec![0.0; n],
             grade,
             metric,
         }
@@ -58,10 +97,8 @@ impl<const D: usize> Vector<D> {
 
     /// Create a scalar (grade-0) k-vector.
     pub fn scalar(value: f64, metric: Metric<D>) -> Self {
-        let data = ArrayD::from_elem(IxDyn(&[]), value);
-
         Self {
-            data,
+            data: vec![value],
             grade: 0,
             metric,
         }
@@ -77,9 +114,86 @@ impl<const D: usize> Vector<D> {
         D
     }
 
+    /// Number of independent components: C(D, grade).
+    pub fn n_components(&self) -> usize {
+        self.data.len()
+    }
+
     /// Whether this k-vector is zero (all components vanish).
     pub fn is_zero(&self, tol: f64) -> bool {
         self.data.iter().all(|x| x.abs() < tol)
+    }
+
+    /// Component access for an arbitrary multi-index.
+    ///
+    /// Handles antisymmetry: repeated indices return 0, transposed indices
+    /// return the negated canonical value.
+    pub fn component(&self, indices: &[usize]) -> f64 {
+        assert_eq!(
+            indices.len(),
+            self.grade,
+            "expected {} indices for grade-{} vector, got {}",
+            self.grade,
+            self.grade,
+            indices.len(),
+        );
+
+        if self.grade == 0 {
+            return self.data[0];
+        }
+
+        match canonicalize(indices) {
+            None => 0.0,
+            Some((sign, sorted)) => {
+                let flat = sorted_to_flat(&sorted);
+                sign as f64 * self.data[flat]
+            }
+        }
+    }
+
+    /// Mutable access to the canonical (sorted-index) component at the given flat index.
+    pub fn canonical_component(&self, flat: usize) -> f64 {
+        self.data[flat]
+    }
+
+    /// Set a canonical component by flat index.
+    pub fn set_canonical(&mut self, flat: usize, value: f64) {
+        self.data[flat] = value;
+    }
+
+    /// Set a component at an arbitrary multi-index.
+    ///
+    /// The value is stored in canonical form: if the indices require
+    /// a sign flip, the stored value is sign * value.
+    pub fn set_component(&mut self, indices: &[usize], value: f64) {
+        assert_eq!(indices.len(), self.grade);
+
+        if self.grade == 0 {
+            self.data[0] = value;
+            return;
+        }
+
+        if let Some((sign, sorted)) = canonicalize(indices) {
+            let flat = sorted_to_flat(&sorted);
+            self.data[flat] = sign as f64 * value;
+        }
+        // If indices have repeats, value must be zero (ignored)
+    }
+
+    /// Access the raw sparse data slice.
+    pub fn as_slice(&self) -> &[f64] {
+        &self.data
+    }
+
+    /// Mutable access to the raw sparse data.
+    pub fn as_mut_slice(&mut self) -> &mut [f64] {
+        &mut self.data
+    }
+
+    /// Scalar value (panics if not grade 0).
+    pub fn scalar_value(&self) -> f64 {
+        assert_eq!(self.grade, 0, "scalar_value requires grade 0");
+        self.data[0]
     }
 
     /// Reverse: reverses the order of grade-1 factors.
@@ -87,8 +201,6 @@ impl<const D: usize> Vector<D> {
     /// For a grade-k vector: rev(v) = (-1)^{k(k-1)/2} v
     pub fn rev(&self) -> Self {
         let k = self.grade;
-        // k * (k-1) / 2 gives the number of transpositions.
-        // For k = 0 or 1, sign is always +1.
         let sign = if k < 2 || (k * (k - 1) / 2).is_multiple_of(2) {
             1.0
         } else {
@@ -96,7 +208,7 @@ impl<const D: usize> Vector<D> {
         };
 
         Self {
-            data: &self.data * sign,
+            data: self.data.iter().map(|x| x * sign).collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -104,29 +216,28 @@ impl<const D: usize> Vector<D> {
 
     /// Squared norm: <v ~v>_0 with appropriate normalization.
     ///
-    /// For a grade-k vector, computes g_{a1 b1} ... g_{ak bk} v^{a1...ak} v^{b1...bk} / k!
+    /// For a grade-k vector, sums over independent components with
+    /// metric factors, accounting for the k! symmetry of the full tensor.
     pub fn norm_squared(&self) -> f64 {
         let k = self.grade;
 
         if k == 0 {
-            let s = self.data[IxDyn(&[])];
-
+            let s = self.data[0];
             return s * s;
         }
 
         let mut sum = 0.0;
-        for idx in indices_iter(D, k) {
-            let val = self.data[IxDyn(&idx)];
+        for (flat, &val) in self.data.iter().enumerate() {
             if val.abs() < 1e-15 {
                 continue;
             }
 
-            // Compute metric factor: product of g_{a_m a_m} for each index
-            let metric_factor: f64 = idx.iter().map(|&a| self.metric.diag[a]).product();
+            let indices = crate::antisymmetric::flat_to_sorted(flat, D, k);
+            let metric_factor: f64 = indices.iter().map(|&a| self.metric.diag[a]).product();
             sum += val * val * metric_factor;
         }
 
-        sum / factorial(k) as f64
+        sum
     }
 
     /// Norm: sqrt(|norm_squared|)
@@ -144,7 +255,7 @@ impl<const D: usize> Vector<D> {
         }
 
         Some(Self {
-            data: &self.data / n,
+            data: self.data.iter().map(|x| x / n).collect(),
             grade: self.grade,
             metric: self.metric,
         })
@@ -157,9 +268,27 @@ impl<const D: usize> Vector<D> {
         crate::ops::inverse(self)
     }
 
-    /// Component access for a single multi-index.
-    pub fn component(&self, indices: &[usize]) -> f64 {
-        self.data[IxDyn(indices)]
+    /// Iterate over (flat_index, canonical_indices, value) for nonzero components.
+    pub fn nonzero_components(&self) -> impl Iterator<Item = (usize, Vec<usize>, f64)> + '_ {
+        self.data
+            .iter()
+            .enumerate()
+            .filter_map(move |(flat, &val)| {
+                if val.abs() < 1e-15 {
+                    None
+                } else {
+                    let indices = crate::antisymmetric::flat_to_sorted(flat, D, self.grade);
+                    Some((flat, indices, val))
+                }
+            })
+    }
+
+    /// Iterate over all (canonical_indices, value) pairs including zeros.
+    pub fn all_components(&self) -> impl Iterator<Item = (Vec<usize>, f64)> + '_ {
+        self.data.iter().enumerate().map(move |(flat, &val)| {
+            let indices = crate::antisymmetric::flat_to_sorted(flat, D, self.grade);
+            (indices, val)
+        })
     }
 }
 
@@ -178,7 +307,12 @@ impl<const D: usize> std::ops::Add for &Vector<D> {
         );
 
         Vector {
-            data: &self.data + &rhs.data,
+            data: self
+                .data
+                .iter()
+                .zip(rhs.data.iter())
+                .map(|(a, b)| a + b)
+                .collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -196,7 +330,12 @@ impl<const D: usize> std::ops::Sub for &Vector<D> {
         );
 
         Vector {
-            data: &self.data - &rhs.data,
+            data: self
+                .data
+                .iter()
+                .zip(rhs.data.iter())
+                .map(|(a, b)| a - b)
+                .collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -208,7 +347,7 @@ impl<const D: usize> std::ops::Neg for &Vector<D> {
 
     fn neg(self) -> Vector<D> {
         Vector {
-            data: -&self.data,
+            data: self.data.iter().map(|x| -x).collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -221,7 +360,7 @@ impl<const D: usize> std::ops::Mul<f64> for &Vector<D> {
 
     fn mul(self, rhs: f64) -> Vector<D> {
         Vector {
-            data: &self.data * rhs,
+            data: self.data.iter().map(|x| x * rhs).collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -234,7 +373,7 @@ impl<const D: usize> std::ops::Div<f64> for &Vector<D> {
 
     fn div(self, rhs: f64) -> Vector<D> {
         Vector {
-            data: &self.data / rhs,
+            data: self.data.iter().map(|x| x / rhs).collect(),
             grade: self.grade,
             metric: self.metric,
         }
@@ -328,10 +467,10 @@ impl<const D: usize> PartialEq for Vector<D> {
 /// Construct the standard basis vectors e_0, e_1, ..., e_{D-1}.
 pub fn basis<const D: usize>(metric: Metric<D>) -> [Vector<D>; D] {
     std::array::from_fn(|m| {
-        let mut data = ArrayD::zeros(IxDyn(&[D]));
-        data[IxDyn(&[m])] = 1.0;
+        let mut data = vec![0.0; D];
+        data[m] = 1.0;
 
-        Vector::new(data, 1, metric)
+        Vector::from_sparse(data, 1, metric)
     })
 }
 
@@ -343,10 +482,10 @@ pub fn basis_vector<const D: usize>(n: usize, metric: Metric<D>) -> Vector<D> {
         n,
         D
     );
-    let mut data = ArrayD::zeros(IxDyn(&[D]));
-    data[IxDyn(&[n])] = 1.0;
+    let mut data = vec![0.0; D];
+    data[n] = 1.0;
 
-    Vector::new(data, 1, metric)
+    Vector::from_sparse(data, 1, metric)
 }
 
 /// Construct a basis blade from ordered indices via wedge product.
@@ -377,34 +516,17 @@ pub fn pseudoscalar<const D: usize>(metric: Metric<D>) -> Vector<D> {
 // Helpers
 // =============================================================================
 
-/// Iterate over all multi-indices of length `k` with each index in [0, d).
-fn indices_iter(d: usize, k: usize) -> Vec<Vec<usize>> {
-    if k == 0 {
-        return vec![vec![]];
-    }
-
-    let mut result = Vec::new();
-    let mut current = vec![0usize; k];
-    loop {
-        result.push(current.clone());
-
-        // Increment the multi-index (odometer style)
-        let mut pos = k - 1;
-        loop {
-            current[pos] += 1;
-            if current[pos] < d {
-                break;
-            }
-            current[pos] = 0;
-            if pos == 0 {
-                return result;
-            }
-            pos -= 1;
-        }
-    }
-}
-
 /// Factorial of n.
 pub(crate) fn factorial(n: usize) -> usize {
     (1..=n).product()
+}
+
+/// Number of independent components (re-export for convenience).
+pub fn n_independent(dim: usize, grade: usize) -> usize {
+    binomial(dim, grade)
+}
+
+/// Iterate over all canonical (strictly-increasing) index tuples.
+pub fn canonical_iter(dim: usize, grade: usize) -> Vec<Vec<usize>> {
+    canonical_indices(dim, grade)
 }

@@ -1,5 +1,3 @@
-use ndarray::{ArrayD, IxDyn};
-
 use morphis::metric::{Metric, euclidean};
 use morphis::vector::{Vector, basis, basis_element, basis_vector, pseudoscalar};
 
@@ -34,7 +32,7 @@ fn scalar_construction() {
     let s = Vector::<3>::scalar(5.0, g);
 
     assert_eq!(s.grade(), 0);
-    assert_eq!(s.data[IxDyn(&[])], 5.0);
+    assert_eq!(s.scalar_value(), 5.0);
 }
 
 #[test]
@@ -106,10 +104,9 @@ fn normalize_unit_vector() {
 #[test]
 fn reverse_involution() {
     let g: Metric<3> = euclidean();
-    let mut data = ArrayD::zeros(IxDyn(&[3, 3]));
-    data[[0, 1]] = 1.0;
-    data[[1, 0]] = -1.0;
-    let b = Vector::<3>::new(data, 2, g);
+    // Create a bivector: b = e0 ^ e1
+    let e = basis(g);
+    let b = morphis::ops::wedge(&e[0], &e[1]);
 
     // Grade-2: rev sign = (-1)^{2*1/2} = -1
     let b_rev = b.rev();
@@ -157,7 +154,7 @@ fn basis_element_empty_is_scalar() {
 
     let s = basis_element(&[], g);
     assert_eq!(s.grade(), 0);
-    assert!((s.data[IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s.scalar_value() - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -200,16 +197,48 @@ fn owned_arithmetic() {
 #[test]
 fn reverse_grade_3_sign() {
     let g: Metric<3> = euclidean();
-    let mut data = ArrayD::zeros(IxDyn(&[3, 3, 3]));
-    data[[0, 1, 2]] = 1.0;
-    data[[1, 0, 2]] = -1.0;
-    data[[0, 2, 1]] = -1.0;
-    data[[2, 1, 0]] = -1.0;
-    data[[1, 2, 0]] = 1.0;
-    data[[2, 0, 1]] = 1.0;
-    let v = Vector::<3>::new(data, 3, g);
+    let ps = pseudoscalar(g);
 
     // Grade-3: rev sign = (-1)^{3*2/2} = (-1)^3 = -1
-    let v_rev = v.rev();
-    assert_eq!(v_rev.component(&[0, 1, 2]), -1.0);
+    let ps_rev = ps.rev();
+    assert_eq!(ps_rev.component(&[0, 1, 2]), -1.0);
+}
+
+#[test]
+fn antisymmetric_access() {
+    let g: Metric<3> = euclidean();
+    let e = basis(g);
+
+    // Bivector b = e0 ^ e1
+    let b = morphis::ops::wedge(&e[0], &e[1]);
+
+    // Canonical component
+    assert_eq!(b.component(&[0, 1]), 1.0);
+    // Transposed: should be negative
+    assert_eq!(b.component(&[1, 0]), -1.0);
+    // Repeated: should be zero
+    assert_eq!(b.component(&[0, 0]), 0.0);
+    assert_eq!(b.component(&[1, 1]), 0.0);
+}
+
+#[test]
+fn sparse_storage_size() {
+    let g: Metric<3> = euclidean();
+
+    // Grade-1 in D=3: C(3,1) = 3 components
+    let v = Vector::<3>::zero(1, g);
+    assert_eq!(v.n_components(), 3);
+
+    // Grade-2 in D=3: C(3,2) = 3 components (was 9 dense)
+    let b = Vector::<3>::zero(2, g);
+    assert_eq!(b.n_components(), 3);
+
+    // Grade-3 in D=3: C(3,3) = 1 component (was 27 dense)
+    let t = Vector::<3>::zero(3, g);
+    assert_eq!(t.n_components(), 1);
+
+    // Grade-2 in D=4: C(4,2) = 6 components (was 16 dense)
+    let g4: Metric<4> = euclidean();
+    let b4 = Vector::<4>::zero(2, g4);
+    assert_eq!(b4.n_components(), 6);
 }

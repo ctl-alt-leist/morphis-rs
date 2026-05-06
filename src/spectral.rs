@@ -7,7 +7,8 @@
 use ndarray::{ArrayD, IxDyn};
 use ndrustfft::{Complex, FftHandler, ndfft, ndifft};
 
-use crate::field::{Field, field_shape, spatial_indices_iter, tensor_indices_iter};
+use crate::antisymmetric::n_components;
+use crate::field::{Field, field_shape, spatial_indices_iter};
 use crate::vector::Vector;
 
 // =============================================================================
@@ -70,13 +71,13 @@ pub(crate) fn fft_inverse<const D: usize>(
 
 /// Extract a scalar component from a field's data array.
 ///
-/// Given data of shape [N; D] ++ [D; grade], extracts the scalar field
-/// at a fixed tensor index, returning shape [N; D].
+/// Given data of shape [N; D] ++ [n_components], extracts the scalar field
+/// at a fixed component index, returning shape [N; D].
 fn extract_component<const D: usize>(
     data: &ArrayD<f64>,
     n: usize,
     grade: usize,
-    tensor_idx: &[usize],
+    comp_idx: usize,
 ) -> ArrayD<f64> {
     let spatial_shape: Vec<usize> = vec![n; D];
     let mut component = ArrayD::<f64>::zeros(IxDyn(&spatial_shape));
@@ -84,7 +85,7 @@ fn extract_component<const D: usize>(
     for spatial_idx in spatial_indices_iter::<D>(n) {
         let mut full_idx = spatial_idx.clone();
         if grade > 0 {
-            full_idx.extend_from_slice(tensor_idx);
+            full_idx.push(comp_idx);
         }
         component[IxDyn(&spatial_idx)] = data[IxDyn(&full_idx)];
     }
@@ -96,13 +97,13 @@ fn write_component<const D: usize>(
     data: &mut ArrayD<f64>,
     n: usize,
     grade: usize,
-    tensor_idx: &[usize],
+    comp_idx: usize,
     component: &ArrayD<f64>,
 ) {
     for spatial_idx in spatial_indices_iter::<D>(n) {
         let mut full_idx = spatial_idx.clone();
         if grade > 0 {
-            full_idx.extend_from_slice(tensor_idx);
+            full_idx.push(comp_idx);
         }
         data[IxDyn(&full_idx)] = component[IxDyn(&spatial_idx)];
     }
@@ -116,7 +117,7 @@ impl<const D: usize> Field<D> {
     /// Partial derivative with respect to spatial axis `a`.
     ///
     /// Computed spectrally: in Fourier space, multiply by i*k_a.
-    /// Grade-preserving: operates on each tensor component independently.
+    /// Grade-preserving: operates on each independent component.
     pub fn partial(&self, axis: usize) -> Field<D> {
         assert!(
             axis < D,
@@ -129,15 +130,15 @@ impl<const D: usize> Field<D> {
         let shape = field_shape::<D>(n, grade);
         let mut result_data = ArrayD::<f64>::zeros(IxDyn(&shape));
 
-        let tensor_indices: Vec<Vec<usize>> = if grade == 0 {
-            vec![vec![]]
+        let n_comp = if grade == 0 {
+            1
         } else {
-            tensor_indices_iter(D, grade)
+            n_components(D, grade)
         };
 
-        for tensor_idx in &tensor_indices {
+        for c in 0..n_comp {
             // Extract this scalar component
-            let component = extract_component::<D>(&self.data, n, grade, tensor_idx);
+            let component = extract_component::<D>(&self.data, n, grade, c);
 
             // Forward FFT
             let mut hat = fft_forward::<D>(&component, n);
@@ -158,7 +159,7 @@ impl<const D: usize> Field<D> {
             let deriv = fft_inverse::<D>(&hat, n);
 
             // Write back
-            write_component::<D>(&mut result_data, n, grade, tensor_idx, &deriv);
+            write_component::<D>(&mut result_data, n, grade, c, &deriv);
         }
 
         Field::new(result_data, grade, &self.grid, self.metric)
@@ -166,9 +167,7 @@ impl<const D: usize> Field<D> {
 
     /// Gradient: raises grade by 1 via exterior derivative.
     ///
-    /// grad(f) = Σ_a e_a ∧ ∂_a f
-    ///
-    /// Scalar field → vector field, vector field → bivector field, etc.
+    /// grad(f) = sum_a e_a ^ d_a f
     pub fn grad(&self) -> Field<D> {
         let result_grade = self.grade() + 1;
         let mut result = Field::zeros(result_grade, &self.grid, self.metric);
@@ -177,12 +176,12 @@ impl<const D: usize> Field<D> {
             let df_da = self.partial(a);
 
             // e_a as a grade-1 vector
-            let mut e_a_data = ArrayD::<f64>::zeros(IxDyn(&[D]));
-            e_a_data[IxDyn(&[a])] = 1.0;
-            let e_a = Vector::new(e_a_data, 1, self.metric);
+            let mut e_a_data = vec![0.0; D];
+            e_a_data[a] = 1.0;
+            let e_a = Vector::from_sparse(e_a_data, 1, self.metric);
             let e_a_field = Field::constant(&e_a, &self.grid);
 
-            // e_a ∧ ∂_a f
+            // e_a ^ d_a f
             let term = Field::wedge(&e_a_field, &df_da);
             result = &result + &term;
         }
@@ -192,9 +191,7 @@ impl<const D: usize> Field<D> {
 
     /// Divergence: lowers grade by 1 via interior derivative.
     ///
-    /// div(f) = Σ_a e_a ⌋ ∂_a f
-    ///
-    /// Vector field → scalar field, bivector field → vector field, etc.
+    /// div(f) = sum_a e_a . d_a f
     pub fn div(&self) -> Field<D> {
         assert!(self.grade() >= 1, "divergence requires grade >= 1");
         let result_grade = self.grade() - 1;
@@ -203,13 +200,12 @@ impl<const D: usize> Field<D> {
         for a in 0..D {
             let df_da = self.partial(a);
 
-            // e_a as a grade-1 vector
-            let mut e_a_data = ArrayD::<f64>::zeros(IxDyn(&[D]));
-            e_a_data[IxDyn(&[a])] = 1.0;
-            let e_a = Vector::new(e_a_data, 1, self.metric);
+            let mut e_a_data = vec![0.0; D];
+            e_a_data[a] = 1.0;
+            let e_a = Vector::from_sparse(e_a_data, 1, self.metric);
             let e_a_field = Field::constant(&e_a, &self.grid);
 
-            // e_a ⌋ ∂_a f (left interior product)
+            // e_a . d_a f (left interior product)
             let term = Field::interior_left(&e_a_field, &df_da);
             result = &result + &term;
         }
@@ -217,36 +213,30 @@ impl<const D: usize> Field<D> {
         result
     }
 
-    /// Exterior derivative: ∇ ∧ f.
+    /// Exterior derivative: nabla ^ f.
     ///
     /// For a vector field in 3D, this is the curl (returns bivector field).
-    /// Grade of result = grade(self) + 1.
     pub fn curl(&self) -> Field<D> {
-        // The curl is the same as grad for the exterior derivative:
-        // ∇ ∧ f = Σ_a e_a ∧ ∂_a f
-        // This is identical to grad() — both are the exterior derivative.
         self.grad()
     }
 
     /// Laplacian: grade-preserving second derivative.
     ///
-    /// ∇²f = Σ_a ∂²_a f
-    ///
-    /// Computed spectrally: multiply by -|k|² in Fourier space.
+    /// Computed spectrally: multiply by -|k|^2 in Fourier space.
     pub fn laplacian(&self) -> Field<D> {
         let n = self.grid.n_cells;
         let grade = self.grade();
         let shape = field_shape::<D>(n, grade);
         let mut result_data = ArrayD::<f64>::zeros(IxDyn(&shape));
 
-        let tensor_indices: Vec<Vec<usize>> = if grade == 0 {
-            vec![vec![]]
+        let n_comp = if grade == 0 {
+            1
         } else {
-            tensor_indices_iter(D, grade)
+            n_components(D, grade)
         };
 
-        for tensor_idx in &tensor_indices {
-            let component = extract_component::<D>(&self.data, n, grade, tensor_idx);
+        for c in 0..n_comp {
+            let component = extract_component::<D>(&self.data, n, grade, c);
             let mut hat = fft_forward::<D>(&component, n);
 
             // Multiply by -|k|^2
@@ -258,31 +248,29 @@ impl<const D: usize> Field<D> {
             }
 
             let lap = fft_inverse::<D>(&hat, n);
-            write_component::<D>(&mut result_data, n, grade, tensor_idx, &lap);
+            write_component::<D>(&mut result_data, n, grade, c, &lap);
         }
 
         Field::new(result_data, grade, &self.grid, self.metric)
     }
 
-    /// Solve ∇²φ = f for φ on the periodic domain.
+    /// Solve nabla^2 phi = f for phi on the periodic domain.
     ///
-    /// Spectral method: φ_hat(k) = -f_hat(k) / |k|² with φ_hat(0) = 0.
-    /// The zero mode is projected out (returns the zero-mean solution).
-    /// Grade-preserving: operates on each component independently.
+    /// Spectral method: phi_hat(k) = -f_hat(k) / |k|^2 with phi_hat(0) = 0.
     pub fn laplacian_inverse(&self) -> Field<D> {
         let n = self.grid.n_cells;
         let grade = self.grade();
         let shape = field_shape::<D>(n, grade);
         let mut result_data = ArrayD::<f64>::zeros(IxDyn(&shape));
 
-        let tensor_indices: Vec<Vec<usize>> = if grade == 0 {
-            vec![vec![]]
+        let n_comp = if grade == 0 {
+            1
         } else {
-            tensor_indices_iter(D, grade)
+            n_components(D, grade)
         };
 
-        for tensor_idx in &tensor_indices {
-            let component = extract_component::<D>(&self.data, n, grade, tensor_idx);
+        for c in 0..n_comp {
+            let component = extract_component::<D>(&self.data, n, grade, c);
             let mut hat = fft_forward::<D>(&component, n);
 
             let mut freq = [0usize; D];
@@ -290,7 +278,6 @@ impl<const D: usize> Field<D> {
                 freq[..D].copy_from_slice(&freq_idx[..D]);
                 let k_sq = self.grid.k_squared(&freq);
                 if k_sq.abs() < 1e-30 {
-                    // Zero mode: set to zero (no unique mean for periodic Poisson)
                     hat[IxDyn(&freq_idx)] = Complex::new(0.0, 0.0);
                 } else {
                     hat[IxDyn(&freq_idx)] /= -k_sq;
@@ -298,7 +285,7 @@ impl<const D: usize> Field<D> {
             }
 
             let solved = fft_inverse::<D>(&hat, n);
-            write_component::<D>(&mut result_data, n, grade, tensor_idx, &solved);
+            write_component::<D>(&mut result_data, n, grade, c, &solved);
         }
 
         Field::new(result_data, grade, &self.grid, self.metric)
