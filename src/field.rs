@@ -281,9 +281,11 @@ impl<const D: usize> Field<D> {
 
     /// Extract a single scalar component of the field as a scalar field.
     ///
-    /// For a grade-k field, `tensor_indices` selects which component
-    /// (e.g., [0, 1] selects the e0^e1 component of a bivector field).
-    /// Handles antisymmetry: [1, 0] returns the negative of [0, 1].
+    /// Extract a single scalar component of the field as a scalar field.
+    ///
+    /// Uses physics-convention indices: for Euclidean, `component_field(&[1, 2])`
+    /// extracts the e1^e2 component of a bivector field.
+    /// Handles antisymmetry: [2, 1] returns the negative of [1, 2].
     pub fn component_field(&self, tensor_indices: &[usize]) -> Field<D> {
         assert_eq!(
             tensor_indices.len(),
@@ -294,11 +296,14 @@ impl<const D: usize> Field<D> {
         let shape = field_shape::<D>(n, 0);
         let mut data = ArrayD::zeros(IxDyn(&shape));
 
+        // Translate to internal indices
+        let internal = self.metric.to_internal_multi(tensor_indices);
+
         // Determine the canonical component and sign
         let (sign, flat) = if self.grade == 0 {
             (1.0, 0)
         } else {
-            match crate::antisymmetric::canonicalize(tensor_indices) {
+            match crate::antisymmetric::canonicalize(&internal) {
                 None => {
                     // Repeated indices: zero field
                     return Field {

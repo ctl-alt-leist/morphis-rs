@@ -33,8 +33,61 @@ impl<const D: usize> Metric<D> {
     }
 
     /// Metric tensor component g_{ab}. Off-diagonal entries are zero.
+    ///
+    /// Uses internal 0-based indices. For physics-convention access,
+    /// translate indices via `to_internal()` first.
     pub fn component(&self, a: usize, b: usize) -> f64 {
         if a == b { self.diag[a] } else { 0.0 }
+    }
+
+    /// First valid user-facing (physics) index.
+    ///
+    /// Lorentzian signatures start at 0 (timelike dimension).
+    /// Euclidean and projective signatures start at 1 (first spatial).
+    pub fn base_index(&self) -> usize {
+        match self.sig {
+            Signature::Lorentzian => 0,
+            Signature::Euclidean | Signature::Projective => 1,
+        }
+    }
+
+    /// Last valid user-facing (physics) index.
+    pub fn max_index(&self) -> usize {
+        self.base_index() + D - 1
+    }
+
+    /// Convert a user-facing (physics) index to internal 0-based index.
+    ///
+    /// Panics with a descriptive message if the index is out of range.
+    pub fn to_internal(&self, idx: usize) -> usize {
+        let base = self.base_index();
+        assert!(
+            idx >= base && idx < base + D,
+            "index {} out of range for {:?} signature (valid: {}..={})",
+            idx,
+            self.sig,
+            base,
+            self.max_index(),
+        );
+
+        idx - base
+    }
+
+    /// Convert an internal 0-based index to user-facing (physics) index.
+    pub fn to_user(&self, idx: usize) -> usize {
+        assert!(
+            idx < D,
+            "internal index {} out of range for {}-dimensional space",
+            idx,
+            D,
+        );
+
+        idx + self.base_index()
+    }
+
+    /// Convert a multi-index from physics convention to internal 0-based.
+    pub fn to_internal_multi(&self, indices: &[usize]) -> Vec<usize> {
+        indices.iter().map(|&idx| self.to_internal(idx)).collect()
     }
 }
 

@@ -124,7 +124,10 @@ impl<const D: usize> Vector<D> {
         self.data.iter().all(|x| x.abs() < tol)
     }
 
-    /// Component access for an arbitrary multi-index.
+    /// Component access for an arbitrary multi-index (physics convention).
+    ///
+    /// Indices use the physics convention determined by the metric signature:
+    /// Euclidean indices start at 1, Lorentzian at 0.
     ///
     /// Handles antisymmetry: repeated indices return 0, transposed indices
     /// return the negated canonical value.
@@ -142,7 +145,9 @@ impl<const D: usize> Vector<D> {
             return self.data[0];
         }
 
-        match canonicalize(indices) {
+        let internal = self.metric.to_internal_multi(indices);
+
+        match canonicalize(&internal) {
             None => 0.0,
             Some((sign, sorted)) => {
                 let flat = sorted_to_flat(&sorted);
@@ -161,8 +166,9 @@ impl<const D: usize> Vector<D> {
         self.data[flat] = value;
     }
 
-    /// Set a component at an arbitrary multi-index.
+    /// Set a component at an arbitrary multi-index (physics convention).
     ///
+    /// Indices use the physics convention determined by the metric signature.
     /// The value is stored in canonical form: if the indices require
     /// a sign flip, the stored value is sign * value.
     pub fn set_component(&mut self, indices: &[usize], value: f64) {
@@ -173,11 +179,12 @@ impl<const D: usize> Vector<D> {
             return;
         }
 
-        if let Some((sign, sorted)) = canonicalize(indices) {
+        let internal = self.metric.to_internal_multi(indices);
+
+        if let Some((sign, sorted)) = canonicalize(&internal) {
             let flat = sorted_to_flat(&sorted);
             self.data[flat] = sign as f64 * value;
         }
-        // If indices have repeats, value must be zero (ignored)
     }
 
     /// Access the raw sparse data slice.
@@ -289,6 +296,27 @@ impl<const D: usize> Vector<D> {
             let indices = crate::antisymmetric::flat_to_sorted(flat, D, self.grade);
             (indices, val)
         })
+    }
+}
+
+// =============================================================================
+// Index Trait
+// =============================================================================
+
+/// Grade-1 vector indexing: `v[1]` returns the x-component (physics convention).
+///
+/// Only valid for grade-1 vectors. Panics on other grades.
+impl<const D: usize> std::ops::Index<usize> for Vector<D> {
+    type Output = f64;
+
+    fn index(&self, idx: usize) -> &f64 {
+        assert_eq!(
+            self.grade, 1,
+            "Index<usize> is only supported for grade-1 vectors, not grade {}",
+            self.grade,
+        );
+        let internal = self.metric.to_internal(idx);
+        &self.data[internal]
     }
 }
 
@@ -464,33 +492,77 @@ impl<const D: usize> PartialEq for Vector<D> {
 // Basis Constructors
 // =============================================================================
 
-/// Construct the standard basis vectors e_0, e_1, ..., e_{D-1}.
-pub fn basis<const D: usize>(metric: Metric<D>) -> [Vector<D>; D] {
-    std::array::from_fn(|m| {
+// =============================================================================
+// Basis Type
+// =============================================================================
+
+/// The standard basis for a D-dimensional geometric algebra.
+///
+/// Indexed using physics conventions: Euclidean bases start at 1
+/// (e1, e2, e3), Lorentzian bases start at 0 (e0 = timelike, e1 = x).
+#[derive(Debug, Clone)]
+pub struct Basis<const D: usize> {
+    vectors: [Vector<D>; D],
+    metric: Metric<D>,
+}
+
+impl<const D: usize> Basis<D> {
+    /// Number of basis vectors.
+    pub fn len(&self) -> usize {
+        D
+    }
+
+    /// Always false: a basis in a nontrivial space is never empty.
+    pub fn is_empty(&self) -> bool {
+        D == 0
+    }
+
+    /// Iterate over the basis vectors in internal order.
+    pub fn iter(&self) -> impl Iterator<Item = &Vector<D>> {
+        self.vectors.iter()
+    }
+}
+
+impl<const D: usize> std::ops::Index<usize> for Basis<D> {
+    type Output = Vector<D>;
+
+    fn index(&self, idx: usize) -> &Vector<D> {
+        let internal = self.metric.to_internal(idx);
+        &self.vectors[internal]
+    }
+}
+
+/// Construct the standard basis vectors.
+///
+/// Returns a `Basis<D>` indexed with physics conventions:
+/// for Euclidean, `e[1]` is the first spatial direction;
+/// for Lorentzian, `e[0]` is timelike and `e[1]` is the first spatial.
+pub fn basis<const D: usize>(metric: Metric<D>) -> Basis<D> {
+    let vectors = std::array::from_fn(|m| {
         let mut data = vec![0.0; D];
         data[m] = 1.0;
 
         Vector::from_sparse(data, 1, metric)
-    })
+    });
+
+    Basis { vectors, metric }
 }
 
-/// Construct a single basis vector e_n in D-dimensional space.
+/// Construct a single basis vector using physics-convention index.
+///
+/// For Euclidean: `basis_vector(1, g)` is the x-direction.
+/// For Lorentzian: `basis_vector(0, g)` is timelike, `basis_vector(1, g)` is x.
 pub fn basis_vector<const D: usize>(n: usize, metric: Metric<D>) -> Vector<D> {
-    assert!(
-        n < D,
-        "basis index {} out of range for {}-dimensional space",
-        n,
-        D
-    );
+    let internal = metric.to_internal(n);
     let mut data = vec![0.0; D];
-    data[n] = 1.0;
+    data[internal] = 1.0;
 
     Vector::from_sparse(data, 1, metric)
 }
 
-/// Construct a basis blade from ordered indices via wedge product.
+/// Construct a basis blade from physics-convention indices via wedge product.
 ///
-/// `basis_element(&[0, 1], metric)` returns e_1 ^ e_2 (the basis bivector).
+/// `basis_element(&[1, 2], euclidean)` returns e1 ^ e2 (the basis bivector).
 /// An empty slice returns the unit scalar.
 pub fn basis_element<const D: usize>(indices: &[usize], metric: Metric<D>) -> Vector<D> {
     if indices.is_empty() {
@@ -507,7 +579,8 @@ pub fn basis_element<const D: usize>(indices: &[usize], metric: Metric<D>) -> Ve
 
 /// Construct the pseudoscalar: e_1 ^ e_2 ^ ... ^ e_D.
 pub fn pseudoscalar<const D: usize>(metric: Metric<D>) -> Vector<D> {
-    let indices: Vec<usize> = (0..D).collect();
+    let base = metric.base_index();
+    let indices: Vec<usize> = (base..base + D).collect();
 
     basis_element(&indices, metric)
 }

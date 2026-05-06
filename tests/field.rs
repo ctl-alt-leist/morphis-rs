@@ -48,9 +48,9 @@ fn constant_field_roundtrip() {
 
     // Check at arbitrary point
     let extracted = f.at(&[1, 2, 3]);
-    approx_eq(extracted.component(&[0]), 1.0, 1e-12);
-    approx_eq(extracted.component(&[1]), 2.0, 1e-12);
-    approx_eq(extracted.component(&[2]), 3.0, 1e-12);
+    approx_eq(extracted.component(&[1]), 1.0, 1e-12);
+    approx_eq(extracted.component(&[2]), 2.0, 1e-12);
+    approx_eq(extracted.component(&[3]), 3.0, 1e-12);
 }
 
 #[test]
@@ -66,8 +66,8 @@ fn set_and_get_roundtrip() {
 
     f.set(&[1, 2, 3], &v);
     let extracted = f.at(&[1, 2, 3]);
-    approx_eq(extracted.component(&[0]), 5.0, 1e-12);
-    approx_eq(extracted.component(&[2]), -3.0, 1e-12);
+    approx_eq(extracted.component(&[1]), 5.0, 1e-12);
+    approx_eq(extracted.component(&[3]), -3.0, 1e-12);
 }
 
 #[test]
@@ -149,9 +149,9 @@ fn gradient_of_sin() {
         let v = grad_f.at(&[m, 0, 0]);
         let x = m as f64 * grid.cell_length;
         let expected = k * (k * x).cos();
-        approx_eq(v.component(&[0]), expected, 1e-10);
-        approx_eq(v.component(&[1]), 0.0, 1e-10);
+        approx_eq(v.component(&[1]), expected, 1e-10);
         approx_eq(v.component(&[2]), 0.0, 1e-10);
+        approx_eq(v.component(&[3]), 0.0, 1e-10);
     }
 }
 
@@ -344,9 +344,9 @@ fn laplacian_of_vector_field() {
     for m in [0, 4, 8, 16, 24] {
         let val = lap.at(&[m, 0, 0]);
         let x = m as f64 * grid.cell_length;
-        approx_eq(val.component(&[0]), -k * k * (k * x).sin(), 1e-10);
-        approx_eq(val.component(&[1]), 0.0, 1e-10);
+        approx_eq(val.component(&[1]), -k * k * (k * x).sin(), 1e-10);
         approx_eq(val.component(&[2]), 0.0, 1e-10);
+        approx_eq(val.component(&[3]), 0.0, 1e-10);
     }
 }
 
@@ -371,9 +371,9 @@ fn laplacian_inverse_of_vector_field() {
     for m in [0, 4, 8, 16, 24] {
         let val = phi.at(&[m, 0, 0]);
         let x = m as f64 * grid.cell_length;
-        approx_eq(val.component(&[0]), -(k * x).sin() / (k * k), 1e-10);
-        approx_eq(val.component(&[1]), 0.0, 1e-10);
+        approx_eq(val.component(&[1]), -(k * x).sin() / (k * k), 1e-10);
         approx_eq(val.component(&[2]), 0.0, 1e-10);
+        approx_eq(val.component(&[3]), 0.0, 1e-10);
     }
 }
 
@@ -391,7 +391,7 @@ fn partial_of_sin() {
     let k = 2.0 * PI / l;
 
     let f = Field::scalar_field(&grid, g, |x| (k * x[0]).sin());
-    let df = f.partial(0);
+    let df = f.partial(1); // x-direction = physics index 1
 
     for m in [0, 4, 8, 16, 24] {
         let x = m as f64 * grid.cell_length;
@@ -401,7 +401,7 @@ fn partial_of_sin() {
 
 #[test]
 fn partial_orthogonal_axis_is_zero() {
-    // ∂_1 sin(k x_0) = 0
+    // d_2 sin(k x_1) = 0
     let g = euclidean::<3>();
     let n = 32;
     let l = 1.0;
@@ -409,7 +409,7 @@ fn partial_orthogonal_axis_is_zero() {
     let k = 2.0 * PI / l;
 
     let f = Field::scalar_field(&grid, g, |x| (k * x[0]).sin());
-    let df = f.partial(1);
+    let df = f.partial(2); // y-direction = physics index 2
 
     assert!(df.is_zero(1e-10));
 }
@@ -456,8 +456,8 @@ fn gradient_higher_harmonics() {
         for m in [0, 4, 8, 16] {
             let val = grad_f.at(&[m, 0, 0]);
             let x = m as f64 * grid.cell_length;
-            approx_eq(val.component(&[0]), k * (k * x).cos(), 1e-10);
-            approx_eq(val.component(&[1]), 0.0, 1e-10);
+            approx_eq(val.component(&[1]), k * (k * x).cos(), 1e-10);
+            approx_eq(val.component(&[2]), 0.0, 1e-10);
         }
     }
 }
@@ -543,8 +543,8 @@ fn component_field_extraction() {
         Vector::new(data, 1, g)
     });
 
-    let c0 = v.component_field(&[0]);
-    let c1 = v.component_field(&[1]);
+    let c0 = v.component_field(&[1]); // x-component (physics index 1)
+    let c1 = v.component_field(&[2]); // y-component (physics index 2)
 
     assert_eq!(c0.grade(), 0);
     assert_eq!(c1.grade(), 0);
@@ -583,9 +583,9 @@ fn field_wedge_product() {
     assert_eq!(w.grade(), 2);
 
     let val = w.at(&[0, 0, 0]);
-    approx_eq(val.component(&[0, 1]), 1.0, 1e-12);
-    approx_eq(val.component(&[1, 0]), -1.0, 1e-12);
-    approx_eq(val.component(&[0, 0]), 0.0, 1e-12);
+    approx_eq(val.component(&[1, 2]), 1.0, 1e-12);
+    approx_eq(val.component(&[2, 1]), -1.0, 1e-12);
+    approx_eq(val.component(&[1, 1]), 0.0, 1e-12);
 }
 
 #[test]
@@ -626,8 +626,8 @@ fn pointwise_scale_vector_field() {
     assert_eq!(scaled.grade(), 1);
     for m in [0, 2, 4, 6] {
         let x = m as f64 * grid.cell_length;
-        approx_eq(scaled.at(&[m, 0, 0]).component(&[0]), x, 1e-12);
-        approx_eq(scaled.at(&[m, 0, 0]).component(&[1]), 0.0, 1e-12);
+        approx_eq(scaled.at(&[m, 0, 0]).component(&[1]), x, 1e-12);
+        approx_eq(scaled.at(&[m, 0, 0]).component(&[2]), 0.0, 1e-12);
     }
 }
 
@@ -720,7 +720,7 @@ fn nyquist_mode_zeroed_in_partial() {
     let k_nyq = 2.0 * PI * (n as f64 / 2.0) / l;
     let f = Field::scalar_field(&grid, g, |x| (k_nyq * x[0]).cos());
 
-    let df = f.partial(0);
+    let df = f.partial(1); // x-direction = physics index 1
     assert!(
         df.is_zero(1e-10),
         "Nyquist mode should be zeroed in odd-order derivative"
