@@ -273,9 +273,9 @@ fn madelung_round_trip() {
     for m in [0, 4, 8, 16, 24] {
         let actual = vel.at(&[m, 0, 0]);
         let expected = expected_vel.at(&[m, 0, 0]);
-        approx_eq(actual.component(&[0]), expected.component(&[0]), 1e-10);
         approx_eq(actual.component(&[1]), expected.component(&[1]), 1e-10);
         approx_eq(actual.component(&[2]), expected.component(&[2]), 1e-10);
+        approx_eq(actual.component(&[3]), expected.component(&[3]), 1e-10);
     }
 }
 
@@ -304,13 +304,13 @@ fn gradient_of_plane_wave() {
         let ga = grad_a.at(&[m, 0, 0]);
         let gb = grad_b.at(&[m, 0, 0]);
 
-        approx_eq(ga.component(&[0]), -k * (k * x).sin(), 1e-10);
-        approx_eq(ga.component(&[1]), 0.0, 1e-10);
+        approx_eq(ga.component(&[1]), -k * (k * x).sin(), 1e-10);
         approx_eq(ga.component(&[2]), 0.0, 1e-10);
+        approx_eq(ga.component(&[3]), 0.0, 1e-10);
 
-        approx_eq(gb.component(&[0]), k * (k * x).cos(), 1e-10);
-        approx_eq(gb.component(&[1]), 0.0, 1e-10);
+        approx_eq(gb.component(&[1]), k * (k * x).cos(), 1e-10);
         approx_eq(gb.component(&[2]), 0.0, 1e-10);
+        approx_eq(gb.component(&[3]), 0.0, 1e-10);
     }
 }
 
@@ -360,9 +360,9 @@ fn madelung_velocity_of_plane_wave() {
 
     for m in [0, 4, 8, 16, 24] {
         let v = vel.at(&[m, 0, 0]);
-        approx_eq(v.component(&[0]), nu * k, 1e-10);
-        approx_eq(v.component(&[1]), 0.0, 1e-10);
+        approx_eq(v.component(&[1]), nu * k, 1e-10);
         approx_eq(v.component(&[2]), 0.0, 1e-10);
+        approx_eq(v.component(&[3]), 0.0, 1e-10);
     }
 }
 

@@ -15,12 +15,12 @@ fn wedge_basis_vectors() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let b = wedge(&e[0], &e[1]);
+    let b = wedge(&e[1], &e[2]);
 
     assert_eq!(b.grade(), 2);
-    assert_eq!(b.component(&[0, 1]), 1.0);
-    assert_eq!(b.component(&[1, 0]), -1.0);
-    assert_eq!(b.component(&[0, 0]), 0.0);
+    assert_eq!(b.component(&[1, 2]), 1.0);
+    assert_eq!(b.component(&[2, 1]), -1.0);
+    assert_eq!(b.component(&[1, 1]), 0.0);
 }
 
 #[test]
@@ -28,15 +28,15 @@ fn wedge_anticommutativity() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let u = &(&e[0] * 2.0) + &(&e[1] * 3.0);
-    let v = &(&e[1] * 1.0) + &(&e[2] * 4.0);
+    let u = &(&e[1] * 2.0) + &(&e[2] * 3.0);
+    let v = &(&e[2] * 1.0) + &(&e[3] * 4.0);
 
     let uv = wedge(&u, &v);
     let vu = wedge(&v, &u);
     let neg_vu = -&vu;
 
-    for m in 0..3 {
-        for n in 0..3 {
+    for m in 1..=3 {
+        for n in 1..=3 {
             assert!(
                 (uv.component(&[m, n]) - neg_vu.component(&[m, n])).abs() < 1e-12,
                 "anticommutativity failed at [{}, {}]",
@@ -53,7 +53,7 @@ fn wedge_nilpotency() {
     let e = basis(g);
 
     // e_m ^ e_m == 0 for all m
-    for m in 0..3 {
+    for m in 1..4 {
         let b = wedge(&e[m], &e[m]);
         assert!(b.is_zero(1e-12), "e_{} ^ e_{} should be zero", m, m);
     }
@@ -64,8 +64,8 @@ fn wedge_grade_exceeds_dim() {
     let g: Metric<2> = euclidean();
     let e = basis(g);
 
-    let b = wedge(&e[0], &e[1]);
-    let trivec = wedge(&b, &e[0]);
+    let b = wedge(&e[1], &e[2]);
+    let trivec = wedge(&b, &e[1]);
 
     assert_eq!(trivec.grade(), 3);
     assert!(trivec.is_zero(1e-12));
@@ -76,13 +76,13 @@ fn wedge_three_basis_vectors() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let b01 = wedge(&e[0], &e[1]);
-    let trivec = wedge(&b01, &e[2]);
+    let b01 = wedge(&e[1], &e[2]);
+    let trivec = wedge(&b01, &e[3]);
 
     assert_eq!(trivec.grade(), 3);
-    assert_eq!(trivec.component(&[0, 1, 2]), 1.0);
-    assert_eq!(trivec.component(&[1, 0, 2]), -1.0);
-    assert_eq!(trivec.component(&[0, 2, 1]), -1.0);
+    assert_eq!(trivec.component(&[1, 2, 3]), 1.0);
+    assert_eq!(trivec.component(&[2, 1, 3]), -1.0);
+    assert_eq!(trivec.component(&[1, 3, 2]), -1.0);
 }
 
 #[test]
@@ -91,10 +91,10 @@ fn wedge_with_scalar() {
     let e = basis(g);
 
     let s = Vector::<3>::scalar(3.0, g);
-    let v = wedge(&s, &e[1]);
+    let v = wedge(&s, &e[2]);
 
     assert_eq!(v.grade(), 1);
-    assert_eq!(v.component(&[1]), 3.0);
+    assert_eq!(v.component(&[2]), 3.0);
 }
 
 // =============================================================================
@@ -106,8 +106,8 @@ fn geometric_basis_vectors_euclidean() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // e_0 * e_0 = 1 (Euclidean)
-    let product = geometric(&e[0], &e[0]);
+    // e_1 * e_1 = 1 (Euclidean)
+    let product = geometric(&e[1], &e[1]);
     let s = product.grade_select(0).unwrap();
     assert!((s.scalar_value() - 1.0).abs() < 1e-12);
 }
@@ -118,8 +118,8 @@ fn geometric_product_decomposition() {
     let e = basis(g);
 
     // For grade-1 vectors: u * v = (u . v) + (u ^ v)
-    let u = &(&e[0] * 2.0) + &(&e[1] * 1.0);
-    let v = &(&e[0] * 1.0) + &(&e[2] * 3.0);
+    let u = &(&e[1] * 2.0) + &(&e[2] * 1.0);
+    let v = &(&e[1] * 1.0) + &(&e[3] * 3.0);
 
     let product = geometric(&u, &v);
 
@@ -130,8 +130,8 @@ fn geometric_product_decomposition() {
     // Bivector part = wedge product
     let bv = product.grade_select(2).unwrap();
     let w = wedge(&u, &v);
-    for m in 0..3 {
-        for n in 0..3 {
+    for m in 1..=3 {
+        for n in 1..=3 {
             assert!(
                 (bv.component(&[m, n]) - w.component(&[m, n])).abs() < 1e-12,
                 "geometric bivector != wedge at [{}, {}]",
@@ -167,14 +167,14 @@ fn interior_left_vector_bivector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // e_0 . (e_0 ^ e_1) should give e_1
-    let b = wedge(&e[0], &e[1]);
-    let result = interior_left(&e[0], &b);
+    // e_1 . (e_1 ^ e_2) should give e_2
+    let b = wedge(&e[1], &e[2]);
+    let result = interior_left(&e[1], &b);
 
     assert_eq!(result.grade(), 1);
-    assert!((result.component(&[0]) - 0.0).abs() < 1e-12);
-    assert!((result.component(&[1]) - 1.0).abs() < 1e-12);
-    assert!((result.component(&[2]) - 0.0).abs() < 1e-12);
+    assert!((result.component(&[1]) - 0.0).abs() < 1e-12);
+    assert!((result.component(&[2]) - 1.0).abs() < 1e-12);
+    assert!((result.component(&[3]) - 0.0).abs() < 1e-12);
 }
 
 #[test]
@@ -182,13 +182,13 @@ fn interior_right_bivector_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // (e_0 ^ e_1) . e_1 should give e_0
-    let b = wedge(&e[0], &e[1]);
-    let result = interior_right(&b, &e[1]);
+    // (e_1 ^ e_2) . e_2 should give e_1
+    let b = wedge(&e[1], &e[2]);
+    let result = interior_right(&b, &e[2]);
 
     assert_eq!(result.grade(), 1);
-    assert!((result.component(&[0]) - 1.0).abs() < 1e-12);
-    assert!((result.component(&[1]) - 0.0).abs() < 1e-12);
+    assert!((result.component(&[1]) - 1.0).abs() < 1e-12);
+    assert!((result.component(&[2]) - 0.0).abs() < 1e-12);
 }
 
 #[test]
@@ -196,9 +196,9 @@ fn interior_left_grade_too_high() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let b = wedge(&e[0], &e[1]);
+    let b = wedge(&e[1], &e[2]);
     // bivector . vector: grade 2 > grade 1, returns zero scalar
-    let result = interior_left(&b, &e[0]);
+    let result = interior_left(&b, &e[1]);
 
     assert_eq!(result.grade(), 0);
     assert!(result.scalar_value().abs() < 1e-12);
@@ -213,11 +213,11 @@ fn wedge_operator() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let e12 = e[0].clone() ^ e[1].clone();
+    let e12 = e[1].clone() ^ e[2].clone();
 
     assert_eq!(e12.grade(), 2);
-    assert_eq!(e12.component(&[0, 1]), 1.0);
-    assert_eq!(e12.component(&[1, 0]), -1.0);
+    assert_eq!(e12.component(&[1, 2]), 1.0);
+    assert_eq!(e12.component(&[2, 1]), -1.0);
 }
 
 #[test]
@@ -225,11 +225,11 @@ fn wedge_operator_chained() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let e123 = e[0].clone() ^ e[1].clone() ^ e[2].clone();
+    let e123 = e[1].clone() ^ e[2].clone() ^ e[3].clone();
 
     assert_eq!(e123.grade(), 3);
-    assert_eq!(e123.component(&[0, 1, 2]), 1.0);
-    assert_eq!(e123.component(&[1, 0, 2]), -1.0);
+    assert_eq!(e123.component(&[1, 2, 3]), 1.0);
+    assert_eq!(e123.component(&[2, 1, 3]), -1.0);
 }
 
 #[test]
@@ -237,7 +237,7 @@ fn geometric_product_operator() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let product = e[0].clone() * e[0].clone();
+    let product = e[1].clone() * e[1].clone();
 
     let s = product.grade_select(0).unwrap();
     assert!((s.scalar_value() - 1.0).abs() < 1e-12);
@@ -248,11 +248,11 @@ fn interior_left_operator() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let b = e[0].clone() ^ e[1].clone();
-    let result = e[0].clone() << b;
+    let b = e[1].clone() ^ e[2].clone();
+    let result = e[1].clone() << b;
 
     assert_eq!(result.grade(), 1);
-    assert!((result.component(&[1]) - 1.0).abs() < 1e-12);
+    assert!((result.component(&[2]) - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -260,11 +260,11 @@ fn interior_right_operator() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let b = e[0].clone() ^ e[1].clone();
-    let result = b >> e[1].clone();
+    let b = e[1].clone() ^ e[2].clone();
+    let result = b >> e[2].clone();
 
     assert_eq!(result.grade(), 1);
-    assert!((result.component(&[0]) - 1.0).abs() < 1e-12);
+    assert!((result.component(&[1]) - 1.0).abs() < 1e-12);
 }
 
 // =============================================================================
@@ -276,10 +276,10 @@ fn inverse_basis_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // e_0^{-1} = e_0 (unit vector in Euclidean)
-    let e0_inv = inverse(&e[0]).unwrap();
-    assert_eq!(e0_inv.grade(), 1);
-    assert!((e0_inv.component(&[0]) - 1.0).abs() < 1e-12);
+    // e_1^{-1} = e_1 (unit vector in Euclidean)
+    let e1_inv = inverse(&e[1]).unwrap();
+    assert_eq!(e1_inv.grade(), 1);
+    assert!((e1_inv.component(&[1]) - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn inverse_scaled_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &e[0] * 3.0;
+    let v = &e[1] * 3.0;
     let v_inv = inverse(&v).unwrap();
 
     // v * v^{-1} should be scalar 1
@@ -305,13 +305,13 @@ fn reverse_involution() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let u = &(&e[0] * 2.0) + &(&e[1] * 3.0);
-    let b = wedge(&u, &e[2]);
+    let u = &(&e[1] * 2.0) + &(&e[2] * 3.0);
+    let b = wedge(&u, &e[3]);
 
     // rev(rev(v)) == v for any grade
     let b_rev_rev = b.rev().rev();
-    for m in 0..3 {
-        for n in 0..3 {
+    for m in 1..=3 {
+        for n in 1..=3 {
             assert!(
                 (b.component(&[m, n]) - b_rev_rev.component(&[m, n])).abs() < 1e-12,
                 "reverse involution failed at [{}, {}]",
@@ -329,8 +329,8 @@ fn geometric_product_grade_1_decomposition() {
 
     // For any grade-1 vectors a, b:
     //   a * b == (a . b) + (a ^ b)
-    let a = &(&e[0] * 1.0) + &(&(&e[1] * 2.0) + &(&e[2] * 3.0));
-    let b = &(&e[0] * 4.0) + &(&(&e[1] * 5.0) + &(&e[2] * 6.0));
+    let a = &(&e[1] * 1.0) + &(&(&e[2] * 2.0) + &(&e[3] * 3.0));
+    let b = &(&e[1] * 4.0) + &(&(&e[2] * 5.0) + &(&e[3] * 6.0));
 
     let product = geometric(&a, &b);
     let w = wedge(&a, &b);
@@ -341,8 +341,8 @@ fn geometric_product_grade_1_decomposition() {
 
     // Bivector part of geometric = wedge product
     let bv = product.grade_select(2).unwrap();
-    for m in 0..3 {
-        for n in 0..3 {
+    for m in 1..=3 {
+        for n in 1..=3 {
             assert!(
                 (bv.component(&[m, n]) - w.component(&[m, n])).abs() < 1e-12,
                 "decomposition failed at [{}, {}]",
@@ -358,9 +358,9 @@ fn geometric_product_associativity() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let a = &(&e[0] * 2.0) + &(&e[1] * 1.0);
-    let b = &(&e[1] * 3.0) + &(&e[2] * 1.0);
-    let c = &(&e[0] * 1.0) + &(&e[2] * 2.0);
+    let a = &(&e[1] * 2.0) + &(&e[2] * 1.0);
+    let b = &(&e[2] * 3.0) + &(&e[3] * 1.0);
+    let c = &(&e[1] * 1.0) + &(&e[3] * 2.0);
 
     // (a * b) * c = a * (b * c)
     let ab = geometric(&a, &b);
@@ -385,9 +385,9 @@ fn wedge_associativity() {
     let g: Metric<4> = euclidean();
     let e = basis(g);
 
-    let u = &(&e[0] * 2.0) + &(&e[1] * 1.0);
-    let v = &(&e[1] * 3.0) + &(&e[2] * 1.0);
-    let w = &(&e[2] * 1.0) + &(&e[3] * 2.0);
+    let u = &(&e[1] * 2.0) + &(&e[2] * 1.0);
+    let v = &(&e[2] * 3.0) + &(&e[3] * 1.0);
+    let w = &(&e[3] * 1.0) + &(&e[4] * 2.0);
 
     // (u ^ v) ^ w = u ^ (v ^ w)
     let left = wedge(&wedge(&u, &v), &w);
@@ -407,8 +407,8 @@ fn product_reversion_law() {
     let e = basis(g);
 
     // rev(u * v) = rev(v) * rev(u)
-    let u = &(&e[0] * 2.0) + &(&e[1] * 3.0);
-    let v = &(&e[1] * 1.0) + &(&e[2] * 4.0);
+    let u = &(&e[1] * 2.0) + &(&e[2] * 3.0);
+    let v = &(&e[2] * 1.0) + &(&e[3] * 4.0);
 
     let product = geometric(&u, &v);
     let left = product.rev();
@@ -432,7 +432,7 @@ fn bivector_inverse() {
     let e = basis(g);
 
     // B * B^{-1} = 1 for a bivector
-    let b = wedge(&e[0], &e[1]);
+    let b = wedge(&e[1], &e[2]);
     let b_inv = inverse(&b).unwrap();
 
     let product = geometric(&b, &b_inv);
@@ -461,13 +461,13 @@ fn project_onto_basis_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
-    let p = project(&v, &e[0]);
+    let v = &(&e[1] * 3.0) + &(&e[2] * 4.0);
+    let p = project(&v, &e[1]);
 
     assert_eq!(p.grade(), 1);
-    assert!((p.component(&[0]) - 3.0).abs() < 1e-12);
-    assert!(p.component(&[1]).abs() < 1e-12);
+    assert!((p.component(&[1]) - 3.0).abs() < 1e-12);
     assert!(p.component(&[2]).abs() < 1e-12);
+    assert!(p.component(&[3]).abs() < 1e-12);
 }
 
 #[test]
@@ -475,12 +475,12 @@ fn project_onto_general_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let target = &e[0] + &e[1];
-    let p = project(&e[0], &target);
+    let target = &e[1] + &e[2];
+    let p = project(&e[1], &target);
 
-    assert!((p.component(&[0]) - 0.5).abs() < 1e-12);
     assert!((p.component(&[1]) - 0.5).abs() < 1e-12);
-    assert!(p.component(&[2]).abs() < 1e-12);
+    assert!((p.component(&[2]) - 0.5).abs() < 1e-12);
+    assert!(p.component(&[3]).abs() < 1e-12);
 }
 
 #[test]
@@ -488,11 +488,11 @@ fn reject_from_basis_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
-    let r = reject(&v, &e[0]);
+    let v = &(&e[1] * 3.0) + &(&e[2] * 4.0);
+    let r = reject(&v, &e[1]);
 
-    assert!(r.component(&[0]).abs() < 1e-12);
-    assert!((r.component(&[1]) - 4.0).abs() < 1e-12);
+    assert!(r.component(&[1]).abs() < 1e-12);
+    assert!((r.component(&[2]) - 4.0).abs() < 1e-12);
 }
 
 #[test]
@@ -500,14 +500,14 @@ fn project_plus_reject_equals_original() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&(&e[1] * 3.0) + &(&e[2] * 5.0));
-    let target = &(&e[0] * 1.0) + &(&e[1] * 1.0);
+    let v = &(&e[1] * 2.0) + &(&(&e[2] * 3.0) + &(&e[3] * 5.0));
+    let target = &(&e[1] * 1.0) + &(&e[2] * 1.0);
 
     let p = project(&v, &target);
     let r = reject(&v, &target);
     let sum = &p + &r;
 
-    for m in 0..3 {
+    for m in 1..=3 {
         assert!(
             (sum.component(&[m]) - v.component(&[m])).abs() < 1e-12,
             "project + reject should equal original at component {}",
@@ -521,13 +521,13 @@ fn projection_is_idempotent() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&(&e[1] * 3.0) + &(&e[2] * 5.0));
-    let target = &(&e[0] * 1.0) + &(&e[2] * 1.0);
+    let v = &(&e[1] * 2.0) + &(&(&e[2] * 3.0) + &(&e[3] * 5.0));
+    let target = &(&e[1] * 1.0) + &(&e[3] * 1.0);
 
     let p1 = project(&v, &target);
     let p2 = project(&p1, &target);
 
-    for m in 0..3 {
+    for m in 1..=3 {
         assert!(
             (p1.component(&[m]) - p2.component(&[m])).abs() < 1e-12,
             "projection should be idempotent at component {}",
@@ -541,8 +541,8 @@ fn rejection_is_orthogonal() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&(&e[1] * 3.0) + &(&e[2] * 5.0));
-    let target = &(&e[0] * 1.0) + &(&e[1] * 1.0);
+    let v = &(&e[1] * 2.0) + &(&(&e[2] * 3.0) + &(&e[3] * 5.0));
+    let target = &(&e[1] * 1.0) + &(&e[2] * 1.0);
 
     let r = reject(&v, &target);
 
@@ -560,12 +560,12 @@ fn reflect_through_e1() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&e[1] * 3.0);
-    let r = reflect(&v, &e[0]);
+    let v = &(&e[1] * 2.0) + &(&e[2] * 3.0);
+    let r = reflect(&v, &e[1]);
 
-    assert!((r.component(&[0]) + 2.0).abs() < 1e-12);
-    assert!((r.component(&[1]) - 3.0).abs() < 1e-12);
-    assert!(r.component(&[2]).abs() < 1e-12);
+    assert!((r.component(&[1]) + 2.0).abs() < 1e-12);
+    assert!((r.component(&[2]) - 3.0).abs() < 1e-12);
+    assert!(r.component(&[3]).abs() < 1e-12);
 }
 
 #[test]
@@ -573,13 +573,13 @@ fn reflect_twice_is_identity() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&(&e[1] * 3.0) + &(&e[2] * 5.0));
-    let n = &(&e[0] * 1.0) + &(&e[1] * 1.0);
+    let v = &(&e[1] * 2.0) + &(&(&e[2] * 3.0) + &(&e[3] * 5.0));
+    let n = &(&e[1] * 1.0) + &(&e[2] * 1.0);
 
     let once = reflect(&v, &n);
     let twice = reflect(&once, &n);
 
-    for m in 0..3 {
+    for m in 1..=3 {
         assert!(
             (twice.component(&[m]) - v.component(&[m])).abs() < 1e-11,
             "double reflection should be identity at component {}",
@@ -593,8 +593,8 @@ fn reflect_preserves_norm() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let v = &(&e[0] * 2.0) + &(&(&e[1] * 3.0) + &(&e[2] * 5.0));
-    let n = &e[1];
+    let v = &(&e[1] * 2.0) + &(&(&e[2] * 3.0) + &(&e[3] * 5.0));
+    let n = &e[2];
 
     let r = reflect(&v, n);
 
@@ -616,9 +616,9 @@ fn mv_times_vector() {
     let e = basis(g);
 
     let s = Vector::<3>::scalar(1.0, g);
-    let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[0].clone());
+    let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[1].clone());
 
-    let result = geometric_mv_v(&mv, &e[0]);
+    let result = geometric_mv_v(&mv, &e[1]);
 
     assert!(
         (result.scalar_part() - 1.0).abs() < 1e-12,
@@ -627,9 +627,9 @@ fn mv_times_vector() {
     );
     let v = result.grade_project(1);
     assert!(
-        (v.component(&[0]) - 1.0).abs() < 1e-12,
+        (v.component(&[1]) - 1.0).abs() < 1e-12,
         "e1 component should be 1, got {}",
-        v.component(&[0]),
+        v.component(&[1]),
     );
 }
 
@@ -639,15 +639,15 @@ fn vector_times_mv() {
     let e = basis(g);
 
     let s = Vector::<3>::scalar(1.0, g);
-    let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[1].clone());
+    let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[2].clone());
 
-    let result = geometric_v_mv(&e[0], &mv);
+    let result = geometric_v_mv(&e[1], &mv);
 
     let v = result.grade_project(1);
-    assert!((v.component(&[0]) - 1.0).abs() < 1e-12);
+    assert!((v.component(&[1]) - 1.0).abs() < 1e-12);
 
     let bv = result.grade_project(2);
-    assert!((bv.component(&[0, 1]) - 1.0).abs() < 1e-12);
+    assert!((bv.component(&[1, 2]) - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -658,7 +658,7 @@ fn mv_times_mv_rotor_product() {
     let cos_val = (std::f64::consts::PI / 4.0).cos();
     let sin_val = (std::f64::consts::PI / 4.0).sin();
 
-    let b = wedge(&e[0], &e[1]);
+    let b = wedge(&e[1], &e[2]);
     let r = MultiVector::from_vector(Vector::<3>::scalar(cos_val, g))
         + MultiVector::from_vector(&b * (-sin_val));
 
@@ -677,17 +677,53 @@ fn mv_product_operator_syntax() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let mv1 = MultiVector::from_vector(e[0].clone());
-    let mv2 = MultiVector::from_vector(e[0].clone());
+    let mv1 = MultiVector::from_vector(e[1].clone());
+    let mv2 = MultiVector::from_vector(e[1].clone());
 
     let product = &mv1 * &mv2;
     assert!((product.scalar_part() - 1.0).abs() < 1e-12);
 
-    let result_1 = mv1.clone() * e[1].clone();
+    let result_1 = mv1.clone() * e[2].clone();
     let bv_1 = result_1.grade_project(2);
-    assert!((bv_1.component(&[0, 1]) - 1.0).abs() < 1e-12);
+    assert!((bv_1.component(&[1, 2]) - 1.0).abs() < 1e-12);
 
-    let result_2 = e[1].clone() * mv2;
+    let result_2 = e[2].clone() * mv2;
     let bv_2 = result_2.grade_project(2);
-    assert!((bv_2.component(&[0, 1]) + 1.0).abs() < 1e-12);
+    assert!((bv_2.component(&[1, 2]) + 1.0).abs() < 1e-12);
+}
+
+// =============================================================================
+// Cross-Signature Consistency
+// =============================================================================
+
+#[test]
+fn wedge_e1_e2_consistent_across_signatures() {
+    // e1 ^ e2 should have component(&[1, 2]) == 1.0 regardless of signature
+    let g_euc: Metric<3> = euclidean();
+    let e_euc = basis(g_euc);
+    let b_euc = wedge(&e_euc[1], &e_euc[2]);
+    assert!((b_euc.component(&[1, 2]) - 1.0).abs() < 1e-12);
+
+    let g_lor: Metric<4> = lorentzian();
+    let e_lor = basis(g_lor);
+    let b_lor = wedge(&e_lor[1], &e_lor[2]);
+    assert!((b_lor.component(&[1, 2]) - 1.0).abs() < 1e-12);
+}
+
+#[test]
+fn interior_product_consistent_across_signatures() {
+    // e1 . (e1 ^ e2) should give e2 for both Euclidean and Lorentzian
+    let g_euc: Metric<3> = euclidean();
+    let e_euc = basis(g_euc);
+    let b_euc = wedge(&e_euc[1], &e_euc[2]);
+    let result_euc = interior_left(&e_euc[1], &b_euc);
+    assert!((result_euc.component(&[2]) - 1.0).abs() < 1e-12);
+
+    // In Lorentzian, spacelike indices have g_{11} = -1
+    let g_lor: Metric<4> = lorentzian();
+    let e_lor = basis(g_lor);
+    let b_lor = wedge(&e_lor[1], &e_lor[2]);
+    let result_lor = interior_left(&e_lor[1], &b_lor);
+    // e1 . (e1^e2) = g(1,1) * e2 = -1 * e2 (Lorentzian)
+    assert!((result_lor.component(&[2]) + 1.0).abs() < 1e-12);
 }

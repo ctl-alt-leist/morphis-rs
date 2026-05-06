@@ -101,6 +101,28 @@ impl<const D: usize> MultiVector<D> {
 }
 
 // =============================================================================
+// Index Trait
+// =============================================================================
+
+/// Grade selection: `M[2]` returns the grade-2 component.
+///
+/// Panics if the grade is not present. Use `grade_select()` for the
+/// `Option`-returning variant.
+impl<const D: usize> std::ops::Index<usize> for MultiVector<D> {
+    type Output = Vector<D>;
+
+    fn index(&self, grade: usize) -> &Vector<D> {
+        self.components.get(&grade).unwrap_or_else(|| {
+            panic!(
+                "multivector has no grade-{} component (present grades: {:?})",
+                grade,
+                self.grades(),
+            )
+        })
+    }
+}
+
+// =============================================================================
 // Arithmetic Operators
 // =============================================================================
 

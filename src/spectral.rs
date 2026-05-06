@@ -114,14 +114,21 @@ fn write_component<const D: usize>(
 // =============================================================================
 
 impl<const D: usize> Field<D> {
-    /// Partial derivative with respect to spatial axis `a`.
+    /// Partial derivative with respect to spatial axis (physics convention).
     ///
+    /// For Euclidean: `partial(1)` differentiates along x.
     /// Computed spectrally: in Fourier space, multiply by i*k_a.
     /// Grade-preserving: operates on each independent component.
     pub fn partial(&self, axis: usize) -> Field<D> {
+        let internal_axis = self.metric.to_internal(axis);
+        self.partial_raw(internal_axis)
+    }
+
+    /// Internal partial derivative using 0-based axis index.
+    fn partial_raw(&self, axis: usize) -> Field<D> {
         assert!(
             axis < D,
-            "axis {} out of range for {}-dimensional field",
+            "internal axis {} out of range for {}-dimensional field",
             axis,
             D
         );
@@ -137,13 +144,9 @@ impl<const D: usize> Field<D> {
         };
 
         for c in 0..n_comp {
-            // Extract this scalar component
             let component = extract_component::<D>(&self.data, n, grade, c);
-
-            // Forward FFT
             let mut hat = fft_forward::<D>(&component, n);
 
-            // Multiply by i*k_a at each frequency, zeroing the Nyquist mode
             let nyquist = n / 2;
             for freq_idx in spatial_indices_iter::<D>(n) {
                 if freq_idx[axis] == nyquist {
@@ -155,10 +158,7 @@ impl<const D: usize> Field<D> {
                 }
             }
 
-            // Inverse FFT
             let deriv = fft_inverse::<D>(&hat, n);
-
-            // Write back
             write_component::<D>(&mut result_data, n, grade, c, &deriv);
         }
 
@@ -173,9 +173,9 @@ impl<const D: usize> Field<D> {
         let mut result = Field::zeros(result_grade, &self.grid, self.metric);
 
         for a in 0..D {
-            let df_da = self.partial(a);
+            let df_da = self.partial_raw(a);
 
-            // e_a as a grade-1 vector
+            // e_a as a grade-1 vector (internal construction)
             let mut e_a_data = vec![0.0; D];
             e_a_data[a] = 1.0;
             let e_a = Vector::from_sparse(e_a_data, 1, self.metric);
@@ -198,7 +198,7 @@ impl<const D: usize> Field<D> {
         let mut result = Field::zeros(result_grade, &self.grid, self.metric);
 
         for a in 0..D {
-            let df_da = self.partial(a);
+            let df_da = self.partial_raw(a);
 
             let mut e_a_data = vec![0.0; D];
             e_a_data[a] = 1.0;
