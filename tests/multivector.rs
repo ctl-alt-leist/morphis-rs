@@ -48,7 +48,7 @@ fn multivector_reverse() {
 
     // Scalar part unchanged
     let s_rev = mv_rev.grade_select(0).unwrap();
-    assert!((s_rev.data[ndarray::IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s_rev.scalar_value() - 1.0).abs() < 1e-12);
 
     // Bivector part negated (grade-2 reversal sign = -1)
     let b_rev = mv_rev.grade_select(2).unwrap();

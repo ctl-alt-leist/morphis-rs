@@ -95,7 +95,7 @@ impl<const D: usize> MultiVector<D> {
     pub fn scalar_part(&self) -> f64 {
         self.components
             .get(&0)
-            .map(|v| v.data[ndarray::IxDyn(&[])])
+            .map(|v| v.scalar_value())
             .unwrap_or(0.0)
     }
 }

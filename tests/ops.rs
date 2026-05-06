@@ -1,5 +1,3 @@
-use ndarray::IxDyn;
-
 use morphis::metric::{Metric, euclidean, lorentzian};
 use morphis::multivector::MultiVector;
 use morphis::ops::{
@@ -92,7 +90,7 @@ fn wedge_with_scalar() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    let s = morphis::vector::Vector::<3>::scalar(3.0, g);
+    let s = Vector::<3>::scalar(3.0, g);
     let v = wedge(&s, &e[1]);
 
     assert_eq!(v.grade(), 1);
@@ -111,7 +109,7 @@ fn geometric_basis_vectors_euclidean() {
     // e_0 * e_0 = 1 (Euclidean)
     let product = geometric(&e[0], &e[0]);
     let s = product.grade_select(0).unwrap();
-    assert!((s.data[IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s.scalar_value() - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -127,7 +125,7 @@ fn geometric_product_decomposition() {
 
     // Scalar part = dot product = 2*1 + 1*0 + 0*3 = 2
     let scalar = product.grade_select(0).unwrap();
-    assert!((scalar.data[IxDyn(&[])] - 2.0).abs() < 1e-12);
+    assert!((scalar.scalar_value() - 2.0).abs() < 1e-12);
 
     // Bivector part = wedge product
     let bv = product.grade_select(2).unwrap();
@@ -152,12 +150,12 @@ fn geometric_signature_lorentzian() {
     // e_0 * e_0 = +1 (timelike)
     let p0 = geometric(&e[0], &e[0]);
     let s0 = p0.grade_select(0).unwrap();
-    assert!((s0.data[IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s0.scalar_value() - 1.0).abs() < 1e-12);
 
     // e_1 * e_1 = -1 (spacelike)
     let p1 = geometric(&e[1], &e[1]);
     let s1 = p1.grade_select(0).unwrap();
-    assert!((s1.data[IxDyn(&[])] + 1.0).abs() < 1e-12);
+    assert!((s1.scalar_value() + 1.0).abs() < 1e-12);
 }
 
 // =============================================================================
@@ -169,7 +167,7 @@ fn interior_left_vector_bivector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // e_0 ⌋ (e_0 ^ e_1) should give e_1
+    // e_0 . (e_0 ^ e_1) should give e_1
     let b = wedge(&e[0], &e[1]);
     let result = interior_left(&e[0], &b);
 
@@ -184,7 +182,7 @@ fn interior_right_bivector_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // (e_0 ^ e_1) ⌊ e_1 should give e_0
+    // (e_0 ^ e_1) . e_1 should give e_0
     let b = wedge(&e[0], &e[1]);
     let result = interior_right(&b, &e[1]);
 
@@ -199,11 +197,11 @@ fn interior_left_grade_too_high() {
     let e = basis(g);
 
     let b = wedge(&e[0], &e[1]);
-    // bivector ⌋ vector: grade 2 > grade 1, returns zero scalar
+    // bivector . vector: grade 2 > grade 1, returns zero scalar
     let result = interior_left(&b, &e[0]);
 
     assert_eq!(result.grade(), 0);
-    assert!((result.data[IxDyn(&[])]).abs() < 1e-12);
+    assert!(result.scalar_value().abs() < 1e-12);
 }
 
 // =============================================================================
@@ -242,7 +240,7 @@ fn geometric_product_operator() {
     let product = e[0].clone() * e[0].clone();
 
     let s = product.grade_select(0).unwrap();
-    assert!((s.data[IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s.scalar_value() - 1.0).abs() < 1e-12);
 }
 
 #[test]
@@ -295,7 +293,7 @@ fn inverse_scaled_vector() {
     // v * v^{-1} should be scalar 1
     let product = geometric(&v, &v_inv);
     let s = product.grade_select(0).unwrap();
-    assert!((s.data[IxDyn(&[])] - 1.0).abs() < 1e-12);
+    assert!((s.scalar_value() - 1.0).abs() < 1e-12);
 }
 
 // =============================================================================
@@ -331,7 +329,6 @@ fn geometric_product_grade_1_decomposition() {
 
     // For any grade-1 vectors a, b:
     //   a * b == (a . b) + (a ^ b)
-    // where a . b = a ⌋ b (left interior for equal grades)
     let a = &(&e[0] * 1.0) + &(&(&e[1] * 2.0) + &(&e[2] * 3.0));
     let b = &(&e[0] * 4.0) + &(&(&e[1] * 5.0) + &(&e[2] * 6.0));
 
@@ -340,7 +337,7 @@ fn geometric_product_grade_1_decomposition() {
 
     // Scalar part of geometric = dot product = 1*4 + 2*5 + 3*6 = 32
     let scalar = product.grade_select(0).unwrap();
-    assert!((scalar.data[IxDyn(&[])] - 32.0).abs() < 1e-12);
+    assert!((scalar.scalar_value() - 32.0).abs() < 1e-12);
 
     // Bivector part of geometric = wedge product
     let bv = product.grade_select(2).unwrap();
@@ -467,7 +464,6 @@ fn project_onto_basis_vector() {
     let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
     let p = project(&v, &e[0]);
 
-    // Projection of (3e1 + 4e2) onto e1 = 3e1
     assert_eq!(p.grade(), 1);
     assert!((p.component(&[0]) - 3.0).abs() < 1e-12);
     assert!(p.component(&[1]).abs() < 1e-12);
@@ -479,8 +475,6 @@ fn project_onto_general_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // Project e1 onto (e1 + e2): proj = (e1 · (e1+e2)) / |e1+e2|² * (e1+e2)
-    // = 1/2 * (e1 + e2)
     let target = &e[0] + &e[1];
     let p = project(&e[0], &target);
 
@@ -497,7 +491,6 @@ fn reject_from_basis_vector() {
     let v = &(&e[0] * 3.0) + &(&e[1] * 4.0);
     let r = reject(&v, &e[0]);
 
-    // Rejection of (3e1 + 4e2) from e1 = 4e2
     assert!(r.component(&[0]).abs() < 1e-12);
     assert!((r.component(&[1]) - 4.0).abs() < 1e-12);
 }
@@ -553,12 +546,12 @@ fn rejection_is_orthogonal() {
 
     let r = reject(&v, &target);
 
-    // r · target should be zero
+    // r dot target should be zero
     let dot = interior_left(&r, &target);
     assert!(
-        dot.data[ndarray::IxDyn(&[])].abs() < 1e-12,
+        dot.scalar_value().abs() < 1e-12,
         "rejection should be orthogonal to target, got dot = {}",
-        dot.data[ndarray::IxDyn(&[])],
+        dot.scalar_value(),
     );
 }
 
@@ -567,8 +560,6 @@ fn reflect_through_e1() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // Reflect (2e1 + 3e2) through hyperplane perpendicular to e1
-    // Flips e1 component, keeps e2: -> (-2e1 + 3e2)
     let v = &(&e[0] * 2.0) + &(&e[1] * 3.0);
     let r = reflect(&v, &e[0]);
 
@@ -624,20 +615,16 @@ fn mv_times_vector() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // (1 + e1) * e1 = e1*e1 + 1*e1 = 1 + e1 (Euclidean)
-    // Actually: scalar(1)*e1 = e1 (grade 1), e1*e1 = 1 (grade 0)
     let s = Vector::<3>::scalar(1.0, g);
     let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[0].clone());
 
     let result = geometric_mv_v(&mv, &e[0]);
 
-    // Grade 0: e1 * e1 = 1
     assert!(
         (result.scalar_part() - 1.0).abs() < 1e-12,
         "scalar part should be 1, got {}",
         result.scalar_part(),
     );
-    // Grade 1: scalar(1) * e1 = e1
     let v = result.grade_project(1);
     assert!(
         (v.component(&[0]) - 1.0).abs() < 1e-12,
@@ -651,17 +638,14 @@ fn vector_times_mv() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // e1 * (1 + e2) = e1 + e1*e2 = e1 + e12
     let s = Vector::<3>::scalar(1.0, g);
     let mv = MultiVector::from_vector(s) + MultiVector::from_vector(e[1].clone());
 
     let result = geometric_v_mv(&e[0], &mv);
 
-    // Grade 1: e1 * scalar(1) = e1
     let v = result.grade_project(1);
     assert!((v.component(&[0]) - 1.0).abs() < 1e-12);
 
-    // Grade 2: e1 * e2 = e12
     let bv = result.grade_project(2);
     assert!((bv.component(&[0, 1]) - 1.0).abs() < 1e-12);
 }
@@ -671,7 +655,6 @@ fn mv_times_mv_rotor_product() {
     let g: Metric<3> = euclidean();
     let e = basis(g);
 
-    // Rotor-like: R = cos + sin * e12
     let cos_val = (std::f64::consts::PI / 4.0).cos();
     let sin_val = (std::f64::consts::PI / 4.0).sin();
 
@@ -679,7 +662,6 @@ fn mv_times_mv_rotor_product() {
     let r = MultiVector::from_vector(Vector::<3>::scalar(cos_val, g))
         + MultiVector::from_vector(&b * (-sin_val));
 
-    // R * ~R should be scalar 1
     let r_rev = r.rev();
     let product = geometric_mv_mv(&r, &r_rev);
 
@@ -698,16 +680,13 @@ fn mv_product_operator_syntax() {
     let mv1 = MultiVector::from_vector(e[0].clone());
     let mv2 = MultiVector::from_vector(e[0].clone());
 
-    // MV * MV via operator
     let product = &mv1 * &mv2;
     assert!((product.scalar_part() - 1.0).abs() < 1e-12);
 
-    // MV * Vector via operator: e1 * e2 -> bivector e12
     let result_1 = mv1.clone() * e[1].clone();
     let bv_1 = result_1.grade_project(2);
     assert!((bv_1.component(&[0, 1]) - 1.0).abs() < 1e-12);
 
-    // Vector * MV via operator: e2 * e1 -> bivector -e12
     let result_2 = e[1].clone() * mv2;
     let bv_2 = result_2.grade_project(2);
     assert!((bv_2.component(&[0, 1]) + 1.0).abs() < 1e-12);
